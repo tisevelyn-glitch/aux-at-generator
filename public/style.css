@@ -1,118 +1,228 @@
-* {
+/**
+ * Adobe Target Activity Generator — Design System
+ * 참고: https://github.com/leehyunjeong9711/at-activity-scanner/blob/main/DESIGN_SYSTEM.md
+ */
+
+/* ── 1. Reset ───────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
+/* ── 2. Design Tokens (CSS Custom Properties) ────────────────── */
+:root {
+    /* Tailwind/shadcn 기반 토큰 */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --border: 214 32% 91%;
+    --primary: 221 83% 53%;
+    --primary-hover: 221 83% 40%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Surface */
+    --jss-surface: 0 0% 100%;
+    --jss-surface-hover: 210 17% 98%;
+    --jss-surface-2: 210 17% 96%;
+
+    /* Primary */
+    --jss-primary-bg: 221 83% 95%;
+    --jss-primary-text: 221 83% 42%;
+    --jss-primary-border: 221 83% 85%;
+    --jss-primary-ring: rgba(37, 99, 235, 0.15);
+
+    /* Semantic */
+    --jss-success-bg: 152 69% 95%;
+    --jss-success-text: 160 84% 20%;
+    --jss-success-border: 158 64% 82%;
+    --jss-warning-bg: 38 92% 95%;
+    --jss-warning-text: 25 95% 25%;
+    --jss-warning-border: 43 96% 76%;
+    --jss-error-bg: 0 86% 97%;
+    --jss-error-text: 0 74% 30%;
+    --jss-error-border: 0 93% 88%;
+
+    /* Shadow */
+    --jss-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+    --jss-hover-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --jss-card-hover-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    /* Spacing (8px grid) */
+    --sp-1: 8px;
+    --sp-2: 16px;
+    --sp-3: 24px;
+    --sp-4: 32px;
+    --sp-5: 40px;
+    --sp-6: 48px;
+
+    /* Radius */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+}
+
+/* Dark mode */
+.dark,
+html.dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 222 47% 8%;
+    --border: 216 34% 17%;
+    --primary: 221 83% 60%;
+    --primary-hover: 221 83% 70%;
+    --muted-foreground: 215 20% 65%;
+
+    --jss-surface: 222 47% 8%;
+    --jss-surface-hover: 222 47% 11%;
+    --jss-surface-2: 222 47% 13%;
+
+    --jss-primary-bg: 221 83% 13%;
+    --jss-primary-text: 221 83% 75%;
+    --jss-primary-border: 221 83% 25%;
+    --jss-primary-ring: rgba(59, 130, 246, 0.25);
+
+    --jss-success-bg: 152 50% 15%;
+    --jss-success-text: 152 69% 85%;
+    --jss-success-border: 152 45% 25%;
+    --jss-warning-bg: 38 70% 18%;
+    --jss-warning-text: 43 96% 85%;
+    --jss-warning-border: 38 60% 30%;
+    --jss-error-bg: 0 50% 15%;
+    --jss-error-text: 0 86% 88%;
+    --jss-error-border: 0 55% 28%;
+
+    --jss-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.30);
+    --jss-hover-shadow: 0 4px 12px rgba(0, 0, 0, 0.40);
+    --jss-card-hover-shadow: 0 8px 32px rgba(0, 0, 0, 0.50);
+}
+
+/* ── 3. Base & Typography ───────────────────────────────────── */
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+}
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: "Pretendard Variable", Pretendard, "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
     min-height: 100vh;
-    padding: 20px;
-    color: #333;
+    padding: var(--sp-2);
+    line-height: 1.6;
+    transition: background 0.25s ease, color 0.25s ease;
 }
 
-.container {
-    max-width: 900px;
-    margin: 0 auto;
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-    padding: 40px;
-}
-
+/* Hero / Header */
 header {
     text-align: center;
-    margin-bottom: 40px;
-    padding-bottom: 20px;
-    border-bottom: 2px solid #f0f0f0;
+    margin-bottom: var(--sp-5);
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid hsl(var(--border));
 }
 
-header h1 {
-    color: #667eea;
-    font-size: 2.5em;
-    margin-bottom: 10px;
+.hero-title {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: hsl(var(--primary));
+    margin-bottom: var(--sp-1);
 }
 
 .subtitle {
-    color: #666;
-    font-size: 1.1em;
+    font-size: 15px;
+    color: hsl(var(--muted-foreground));
+    font-weight: 400;
 }
 
-.auth-section,
-.main-section,
-.result-section,
+/* ── 4. Layout ───────────────────────────────────────────────── */
+.container {
+    max-width: 1152px;
+    margin: 0 auto;
+    background: hsl(var(--card));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--jss-card-shadow);
+    padding: var(--sp-5);
+    transition: box-shadow 0.2s ease, background 0.25s ease;
+}
+
+.container:hover {
+    box-shadow: var(--jss-card-hover-shadow);
+}
+
+/* ── 5. Card (Design System 9-1) ──────────────────────────────── */
 .card {
-    margin-bottom: 30px;
-    padding: 25px;
-    background: #f9f9f9;
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
+    margin-bottom: var(--sp-4);
+    background: hsl(var(--jss-surface));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--jss-card-shadow);
+    overflow: hidden;
+    transition: box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease;
 }
 
-h2 {
-    color: #667eea;
-    margin-bottom: 20px;
-    font-size: 1.5em;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #667eea;
+.card:hover {
+    box-shadow: var(--jss-card-hover-shadow);
 }
 
+.card-header {
+    padding: 20px var(--sp-3) 12px;
+    border-bottom: 1px solid hsl(var(--border));
+}
+
+.card-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    letter-spacing: -0.02em;
+}
+
+.card-body {
+    padding: 0 var(--sp-3) var(--sp-3);
+}
+
+.card .form-group:first-of-type {
+    margin-top: var(--sp-2);
+}
+
+/* ── 6. Form ─────────────────────────────────────────────────── */
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: var(--sp-2);
 }
 
 label {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: var(--sp-1);
     font-weight: 600;
-    color: #555;
-    font-size: 0.95em;
+    font-size: 13px;
+    color: hsl(var(--foreground));
 }
 
 .form-control {
     width: 100%;
-    padding: 12px;
-    border: 2px solid #e0e0e0;
-    border-radius: 6px;
-    font-size: 1em;
-    transition: all 0.3s ease;
+    padding: 12px var(--sp-2);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-md);
+    font-size: 14px;
     font-family: inherit;
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-control::placeholder {
+    color: hsl(var(--muted-foreground));
 }
 
 .form-control:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.form-hint {
-    font-size: 0.85em;
-    color: #666;
-    margin-bottom: 10px;
-}
-
-.checkbox-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 20px;
-    padding: 12px 0;
-}
-
-.checkbox-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    font-weight: 500;
-    color: #555;
-}
-
-.checkbox-label input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    accent-color: #667eea;
-    cursor: pointer;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px var(--jss-primary-ring);
 }
 
 textarea.form-control {
@@ -120,59 +230,66 @@ textarea.form-control {
     min-height: 100px;
 }
 
-select.form-control[size] {
-    height: auto;
-    max-height: 200px;
-    overflow-y: auto;
-}
-
+/* ── 7. Buttons ──────────────────────────────────────────────── */
 .btn {
-    padding: 12px 30px;
+    padding: 12px var(--sp-3);
     border: none;
-    border-radius: 6px;
-    font-size: 1em;
+    border-radius: var(--radius-md);
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease;
+    font-family: inherit;
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: hsl(var(--primary));
     color: white;
 }
 
 .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-}
-
-.btn-primary:active {
-    transform: translateY(0);
+    background: hsl(var(--primary-hover));
+    transform: translateY(-1px);
+    box-shadow: var(--jss-hover-shadow);
 }
 
 .btn-success {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    background: hsl(152 69% 42%);
     color: white;
     width: 100%;
-    padding: 15px;
-    font-size: 1.1em;
+    padding: 14px var(--sp-3);
+    font-size: 15px;
 }
 
 .btn-success:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+    background: hsl(152 69% 35%);
+    transform: translateY(-1px);
+    box-shadow: var(--jss-hover-shadow);
 }
 
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none;
 }
 
+.btn-small {
+    padding: 10px 18px;
+    font-size: 13px;
+    background: hsl(var(--primary));
+    color: white;
+    white-space: nowrap;
+    border-radius: var(--radius-sm);
+}
+
+.btn-small:hover {
+    background: hsl(var(--primary-hover));
+}
+
+/* ── 8. Offer search row ─────────────────────────────────────── */
 .offer-search-row {
     display: flex;
-    gap: 10px;
+    gap: var(--sp-1);
     align-items: center;
 }
 
@@ -180,48 +297,42 @@ select.form-control[size] {
     flex: 1;
 }
 
-.btn-small {
-    padding: 10px 18px;
-    font-size: 0.9em;
-    background: #667eea;
-    color: white;
-    white-space: nowrap;
-}
-
-.btn-small:hover {
-    background: #5a6fd6;
-}
-
+/* ── 9. Offer result card (accent border) ──────────────────────── */
 .offer-result-card {
-    margin-top: 12px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
+    margin-top: var(--sp-2);
+    border: 1px solid hsl(var(--border));
+    border-left: 4px solid hsl(var(--primary));
+    border-radius: var(--radius-md);
     overflow: hidden;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+    background: hsl(var(--jss-surface));
+    transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .offer-result-card:hover {
-    border-color: #667eea;
-    background: #f8f9ff;
+    background: hsl(var(--jss-surface-hover));
+    border-color: hsl(var(--primary));
+    box-shadow: var(--jss-hover-shadow);
 }
 
 .offer-result-card.selected {
-    border-color: #667eea;
-    background: #e8ecff;
+    border-left-color: hsl(152 69% 42%);
+    background: hsl(var(--jss-primary-bg));
 }
 
 .offer-result-header {
-    padding: 10px 14px;
-    background: #f0f0f0;
+    padding: 10px var(--sp-2);
+    background: hsl(var(--jss-surface-2));
     font-weight: 600;
-    font-size: 0.9em;
+    font-size: 13px;
+    color: hsl(var(--foreground));
 }
 
 .offer-result-body {
-    padding: 14px;
-    font-size: 0.9em;
+    padding: var(--sp-2);
+    font-size: 13px;
     line-height: 1.6;
+    color: hsl(var(--foreground));
 }
 
 .offer-result-body .offer-row {
@@ -235,86 +346,121 @@ select.form-control[size] {
 
 .offer-result-body .offer-label {
     min-width: 110px;
-    color: #666;
+    color: hsl(var(--muted-foreground));
 }
 
 .offer-result-empty {
-    margin-top: 10px;
-    padding: 12px;
-    color: #666;
-    font-size: 0.9em;
+    margin-top: var(--sp-1);
+    padding: var(--sp-2);
+    color: hsl(var(--muted-foreground));
+    font-size: 13px;
 }
 
+/* ── 10. Status message (Banner) ──────────────────────────────── */
 .status-message {
-    margin-top: 15px;
-    padding: 12px;
-    border-radius: 6px;
-    font-size: 0.9em;
+    margin-top: var(--sp-2);
+    padding: var(--sp-2);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
     display: none;
+    white-space: pre-wrap;
 }
 
 .status-message.success {
-    background: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
+    background: hsl(var(--jss-success-bg));
+    color: hsl(var(--jss-success-text));
+    border: 1px solid hsl(var(--jss-success-border));
     display: block;
 }
 
 .status-message.error {
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+    background: hsl(var(--jss-error-bg));
+    color: hsl(var(--jss-error-text));
+    border: 1px solid hsl(var(--jss-error-border));
     display: block;
 }
 
 .status-message.loading {
-    background: #d1ecf1;
-    color: #0c5460;
-    border: 1px solid #bee5eb;
+    background: hsl(var(--jss-primary-bg));
+    color: hsl(var(--jss-primary-text));
+    border: 1px solid hsl(var(--jss-primary-border));
     display: block;
 }
 
+/* ── 11. Result box ───────────────────────────────────────────── */
 .result-box {
-    background: white;
-    padding: 20px;
-    border-radius: 6px;
-    border: 1px solid #e0e0e0;
+    background: hsl(var(--jss-surface-2));
+    padding: var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid hsl(var(--border));
     min-height: 100px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9em;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 13px;
     white-space: pre-wrap;
     word-wrap: break-word;
     max-height: 500px;
     overflow-y: auto;
+    color: hsl(var(--foreground));
+    transition: background 0.25s ease, border-color 0.25s ease;
 }
 
 .result-box.success {
-    background: #d4edda;
-    border-color: #c3e6cb;
-    color: #155724;
+    background: hsl(var(--jss-success-bg));
+    border-color: hsl(var(--jss-success-border));
+    color: hsl(var(--jss-success-text));
 }
 
 .result-box.error {
-    background: #f8d7da;
-    border-color: #f5c6cb;
-    color: #721c24;
+    background: hsl(var(--jss-error-bg));
+    border-color: hsl(var(--jss-error-border));
+    color: hsl(var(--jss-error-text));
 }
 
 .result-box.loading {
-    background: #d1ecf1;
-    border-color: #bee5eb;
-    color: #0c5460;
+    background: hsl(var(--jss-primary-bg));
+    border-color: hsl(var(--jss-primary-border));
+    color: hsl(var(--jss-primary-text));
 }
 
+/* ── 12. Theme toggle ────────────────────────────────────────── */
+.theme-toggle {
+    position: fixed;
+    top: var(--sp-2);
+    right: var(--sp-2);
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-full);
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--jss-card-shadow);
+    transition: background 0.25s ease, border-color 0.25s ease, transform 0.15s ease;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: var(--jss-hover-shadow);
+}
+
+.theme-toggle svg {
+    width: 20px;
+    height: 20px;
+    color: hsl(var(--foreground));
+}
+
+/* ── 13. Loading spinner ──────────────────────────────────────── */
 .loading-spinner {
     display: inline-block;
     width: 20px;
     height: 20px;
-    border: 3px solid rgba(102, 126, 234, 0.3);
+    border: 3px solid hsl(var(--primary) / 0.3);
     border-radius: 50%;
-    border-top-color: #667eea;
+    border-top-color: hsl(var(--primary));
     animation: spin 1s ease-in-out infinite;
-    margin-right: 10px;
+    margin-right: var(--sp-1);
     vertical-align: middle;
 }
 
@@ -322,19 +468,240 @@ select.form-control[size] {
     to { transform: rotate(360deg); }
 }
 
-/* 반응형 디자인 */
-@media (max-width: 768px) {
+/* ── 탭 네비게이션 ───────────────────────────────────────────── */
+.tab-nav {
+    display: flex;
+    gap: 4px;
+    margin-top: var(--sp-2);
+    padding-top: var(--sp-2);
+    border-top: 1px solid hsl(var(--border));
+}
+
+.tab-btn {
+    padding: 10px 20px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--jss-surface));
+    color: hsl(var(--foreground));
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.tab-btn:hover {
+    background: hsl(var(--jss-surface-hover));
+}
+
+.tab-btn.active {
+    background: hsl(var(--primary));
+    color: white;
+    border-color: hsl(var(--primary));
+}
+
+/* ── My Content 리스트 ───────────────────────────────────────── */
+.content-list {
+    min-height: 60px;
+}
+
+.content-list-item {
+    display: grid;
+    grid-template-columns: 100px 1fr auto;
+    gap: var(--sp-2);
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid hsl(var(--border));
+    font-size: 13px;
+}
+
+.content-list-item:last-child {
+    border-bottom: none;
+}
+
+.content-list-with-ws .content-list-item-ws {
+    grid-template-columns: 36px 120px 90px 1fr auto 72px;
+}
+
+.content-list-check {
+    display: flex;
+    align-items: center;
+}
+
+.content-list-check input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.activity-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.content-list-ws {
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+    font-weight: 500;
+}
+
+.content-list-header {
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    background: hsl(var(--jss-surface-2));
+}
+
+.content-list-header .content-list-ws {
+    color: hsl(var(--foreground));
+}
+
+.content-list-id {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-weight: 600;
+    color: hsl(var(--jss-primary-text));
+}
+
+.content-list-name {
+    color: hsl(var(--foreground));
+}
+
+.content-list-meta {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+}
+
+.content-list-actions {
+    display: flex;
+    align-items: center;
+}
+
+.content-list-header .content-list-actions {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+}
+
+.btn-remove-from-mine {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+    background: transparent;
+    border: 1px solid hsl(var(--border));
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-remove-from-mine:hover:not(:disabled) {
+    color: hsl(var(--jss-error-text));
+    border-color: hsl(var(--jss-error-border));
+}
+
+.btn-remove-from-mine:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.content-list-empty {
+    padding: var(--sp-2);
+    color: hsl(var(--muted-foreground));
+    font-size: 13px;
+}
+
+/* ── Modal (Edit Activity) ───────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: var(--sp-2);
+}
+
+.modal-card {
+    background: hsl(var(--card));
+    border-radius: var(--radius-md);
+    box-shadow: var(--jss-card-shadow);
+    max-width: 440px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid hsl(var(--border));
+}
+
+.modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    line-height: 1;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.modal-close:hover {
+    color: hsl(var(--foreground));
+}
+
+.modal-body {
+    padding: var(--sp-3);
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: var(--sp-2) var(--sp-3);
+    border-top: 1px solid hsl(var(--border));
+}
+
+/* ── 14. Responsive (Design System 11) ────────────────────────── */
+@media (max-width: 1024px) {
     .container {
-        padding: 20px;
+        padding: var(--sp-4);
+    }
+}
+
+@media (max-width: 640px) {
+    body {
+        padding: var(--sp-1);
     }
 
-    header h1 {
-        font-size: 2em;
+    .hero-title {
+        font-size: 26px;
     }
 
-    .auth-section,
-    .main-section,
-    .result-section {
-        padding: 15px;
+    .container {
+        padding: var(--sp-2);
+    }
+
+    .card-header,
+    .card-body {
+        padding-left: var(--sp-2);
+        padding-right: var(--sp-2);
+    }
+
+    .offer-search-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .theme-toggle {
+        top: var(--sp-1);
+        right: var(--sp-1);
+        width: 40px;
+        height: 40px;
     }
 }

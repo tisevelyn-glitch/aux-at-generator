@@ -6,39 +6,37 @@
     var execBtn = document.getElementById('executeBtn');
 
     async function loadWorkspaces() {
-        if (!wsSelect) return;
         try {
-            var res = await fetch(API_BASE + '/workspaces');
-            var data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to load workspaces');
+            var r = await fetchJson(API_BASE + '/workspaces');
+            var data = r.data;
+            if (!r.ok) throw new Error(data.error || 'Failed to load workspaces');
             workspacesList = data.workspaces || [];
-            wsSelect.innerHTML = '<option value="">— Select workspace —</option>';
+            var opts = '<option value="">— Select workspace —</option>';
             workspacesList.forEach(function (ws) {
-                var opt = document.createElement('option');
-                opt.value = ws.id;
-                opt.textContent = ws.name;
-                wsSelect.appendChild(opt);
+                opts += '<option value="' + escapeHtml(ws.id) + '">' + escapeHtml(ws.name) + '</option>';
             });
+            if (wsSelect) wsSelect.innerHTML = opts;
         } catch (e) {
-            wsSelect.innerHTML = '<option value="">— Select workspace —</option><option value="" disabled>Failed to load</option>';
+            if (wsSelect) wsSelect.innerHTML = '<option value="">— Select workspace —</option><option value="" disabled>Failed to load</option>';
             console.error('loadWorkspaces:', e);
         }
     }
+    function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     async function init() {
         loadWorkspaces();
         try {
-            var cfgRes = await fetch(API_BASE + '/config');
-            var cfg = await cfgRes.json();
+            var cfgR = await fetchJson(API_BASE + '/config');
+            var cfg = cfgR.data;
             if (!cfg.hasConfig) {
                 showResult('Missing .env configuration. Set ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET, ADOBE_TENANT.\n', 'error');
                 return;
             }
             tenant = cfg.tenant;
 
-            var tokRes = await fetch(API_BASE + '/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-            var tokData = await tokRes.json();
-            if (!tokRes.ok) {
+            var tokR = await fetchJson(API_BASE + '/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            var tokData = tokR.data;
+            if (!tokR.ok) {
                 showResult('Token failed: ' + (tokData.error || 'Unknown error') + '\n', 'error');
                 return;
             }

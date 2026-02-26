@@ -6,30 +6,64 @@ const fetch = require('node-fetch');
 const router = express.Router();
 const { config, WORKSPACES, getToken, getOfferById } = require('../lib/adobe');
 
-// GET /api/offers/list — 오퍼 목록
+// GET /api/offers/list — workspaceId 없으면 전체 워크스페이스 조회(각 항목에 workspace 정보 포함)
 router.get('/list', async function (req, res) {
     try {
-        var authHeader = req.headers.authorization;
-        var tenant = req.headers['x-tenant'] || config.tenant;
-        if (!authHeader || !tenant) {
-            return res.status(400).json({ error: 'Authorization and Tenant are required.' });
+        var workspaceId = String(req.query.workspaceId || '').trim();
+        var tenant = config.tenant;
+        var accessToken = await getToken();
+        if (!tenant || !config.clientId) {
+            return res.status(400).json({ error: 'Tenant and ADOBE_CLIENT_ID required.' });
         }
-        var accessToken = authHeader.replace('Bearer ', '');
-        var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/offers/content';
-        var response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': 'Bearer ' + accessToken,
-                'X-Api-Key': config.clientId,
-                'Content-Type': 'application/vnd.adobe.target.v1+json'
+
+        if (workspaceId) {
+            var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/offers/content?workspace=' + encodeURIComponent(workspaceId);
+            var response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + accessToken,
+                    'X-Api-Key': config.clientId,
+                    'X-Admin-Workspace-Id': workspaceId,
+                    'Accept': 'application/vnd.adobe.target.v1+json'
+                }
+            });
+            var data = await response.json();
+            if (!response.ok) {
+                return res.status(response.status).json({ error: data.message || data.error || 'Failed to list offers' });
             }
-        });
-        var data = await response.json();
-        if (!response.ok) {
-            return res.status(response.status).json({ error: data.message || data.error || 'Failed to list offers' });
+            var offers = Array.isArray(data) ? data : (data.content || data.offers || []);
+            var ws = WORKSPACES.find(function (w) { return String(w.id) === String(workspaceId); });
+            var workspaceName = ws ? ws.name : workspaceId;
+            offers = offers.map(function (o) {
+                return Object.assign({}, o, { workspaceId: workspaceId, workspaceName: workspaceName });
+            });
+            return res.json({ offers: offers });
         }
-        var offers = Array.isArray(data) ? data : (data.content || data.offers || []);
-        res.json({ offers: offers });
+
+        var all = [];
+        for (var i = 0; i < WORKSPACES.length; i++) {
+            var wsId = WORKSPACES[i].id;
+            var wsName = WORKSPACES[i].name;
+            var url = 'https://mc.adobe.io/' + tenant + '/target/offers/content?workspace=' + encodeURIComponent(wsId);
+            var r = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + accessToken,
+                    'X-Api-Key': config.clientId,
+                    'X-Admin-Workspace-Id': wsId,
+                    'Accept': 'application/vnd.adobe.target.v1+json'
+                }
+            });
+            var body;
+            try { body = await r.json(); } catch (e) { body = null; }
+            if (r.ok && body) {
+                var list = Array.isArray(body) ? body : (body.content || body.offers || []);
+                list.forEach(function (o) {
+                    all.push(Object.assign({}, o, { workspaceId: wsId, workspaceName: wsName }));
+                });
+            }
+        }
+        res.json({ offers: all });
     } catch (error) {
         console.error('Offers list error:', error);
         res.status(500).json({ error: error.message });

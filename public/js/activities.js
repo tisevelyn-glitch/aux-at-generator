@@ -36,13 +36,13 @@ async function runAutomation() {
             if (!offerContent) throw new Error('Please enter HTML Offer content.');
 
             showResult('Step 1: Creating HTML Offer...\n', 'loading');
-            var offerRes = await fetch(API_BASE + '/offers/create', {
+            var offerR = await fetchJson(API_BASE + '/offers/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: offerName, content: offerContent, workspaceId: selectedWorkspaceIds[0] })
             });
-            var offerData = await offerRes.json();
-            if (!offerRes.ok) throw new Error(offerData.error || 'Failed to create offer');
+            var offerData = offerR.data;
+            if (!offerR.ok) throw new Error(offerData.error || 'Failed to create offer');
             offerId = offerData.offerId;
             showResult('Offer created. Offer ID: ' + offerId + '\n', 'success');
         } else {
@@ -58,24 +58,24 @@ async function runAutomation() {
             var wLabel = getWorkspaceNameById(wId) || wId;
 
             showResult('Step 2: Creating A/B Test Activity for [' + wLabel + ']...\n', 'loading');
-            var actRes = await fetch(API_BASE + '/activities/create', {
+            var actR = await fetchJson(API_BASE + '/activities/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: activityName, offerId: offerId, workspaceId: wId })
             });
-            var actData = await actRes.json();
-            if (!actRes.ok) throw new Error(actData.error || '[' + wLabel + '] Failed to create activity');
+            var actData = actR.data;
+            if (!actR.ok) throw new Error(actData.error || '[' + wLabel + '] Failed to create activity');
             var activityId = actData.activityId;
             showResult('[' + wLabel + '] Activity created. ID: ' + activityId + '\n', 'success');
 
             showResult('Step 3: Setting state to \'' + activityStatus + '\'...\n', 'loading');
-            var stateRes = await fetch(API_BASE + '/activities/state', {
+            var stateR = await fetchJson(API_BASE + '/activities/state', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ activityId: activityId, state: activityStatus })
             });
-            var stateData = await stateRes.json();
-            if (!stateRes.ok) throw new Error(stateData.error || '[' + wLabel + '] Failed to update activity state');
+            var stateData = stateR.data;
+            if (!stateR.ok) throw new Error(stateData.error || '[' + wLabel + '] Failed to update activity state');
             showResult('[' + wLabel + '] State updated.\n', 'success');
             results.push({ workspace: wLabel, activityId: activityId });
         }

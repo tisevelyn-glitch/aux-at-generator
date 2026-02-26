@@ -49,11 +49,11 @@ async function searchOfferById() {
 
     try {
         var url = API_BASE + '/offers/' + encodeURIComponent(id) + '?workspaceId=' + encodeURIComponent(wsId);
-        var response = await fetch(url, {
+        var r = await fetchJson(url, {
             headers: { 'Authorization': 'Bearer ' + accessToken, 'X-Tenant': tenant }
         });
-        var data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Offer not found');
+        var data = r.data;
+        if (!r.ok) throw new Error(data.error || 'Offer not found');
 
         var offer = data.offer || data;
         selectedOfferId = String(offer.id || offer.offerId || id);
