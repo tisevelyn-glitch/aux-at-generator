@@ -10,6 +10,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'aux-at-generator-secret-change-in-prod';
 
+// Render 등 프록시 뒤에서 세션/쿠키 정상 동작 (trust proxy)
+app.set('trust proxy', 1);
+
 // 미들웨어
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -17,7 +20,12 @@ app.use(session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 }
+    cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000
+    }
 }));
 app.options('/api/*', function (req, res) { res.sendStatus(204); });
 
