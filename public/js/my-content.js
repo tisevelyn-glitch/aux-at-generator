@@ -32,12 +32,15 @@
         var name = (a.name != null ? a.name : '—');
         var state = (a.state != null ? a.state : (a.status != null ? a.status : '—'));
         var updated = a.updatedAt || a.modifiedAt || a.lastModified || '—';
+        var via = a.createdVia || '—';
+        var viaLabel = via === 'api' ? 'API 생성' : (via === 'ui' ? 'UI 생성' : via);
         return '<div class="content-list-item content-list-item-ws" data-activity-id="' + escapeHtml(String(id)) + '">' +
             '<span class="content-list-check"><input type="checkbox" class="activity-row-cb" value="' + escapeHtml(String(id)) + '" aria-label="Select"></span>' +
             '<span class="content-list-ws">' + escapeHtml(String(ws)) + '</span>' +
             '<span class="content-list-id">' + escapeHtml(String(id)) + '</span>' +
             '<span class="content-list-name">' + escapeHtml(name) + '</span>' +
             '<span class="content-list-meta">' + escapeHtml(String(state)) + ' · ' + escapeHtml(String(updated).slice(0, 10)) + '</span>' +
+            '<span class="content-list-via">' + escapeHtml(viaLabel) + '</span>' +
             '<span class="content-list-actions"><button type="button" class="btn-remove-from-mine" data-activity-id="' + escapeHtml(String(id)) + '" title="내 목록에서 제외">제외</button></span>' +
             '</div>';
     }
@@ -68,6 +71,7 @@
         '<span class="content-list-id">ID</span>' +
         '<span class="content-list-name">Name</span>' +
         '<span class="content-list-meta">State · Updated</span>' +
+        '<span class="content-list-via">생성 경로</span>' +
         '<span class="content-list-actions">동작</span>' +
         '</div>';
     var lastActivities = [];
@@ -101,38 +105,47 @@
 
     function loadContent() {
         showStatus('Loading all workspaces...', 'loading');
-        myActivitiesList.innerHTML = '';
-        myOffersList.innerHTML = '';
+        showActivitiesStatus('Loading...', 'loading');
+        if (myActivitiesList) myActivitiesList.innerHTML = '<p class="content-list-empty">로딩 중...</p>';
+        if (myOffersList) myOffersList.innerHTML = '<p class="content-list-empty">로딩 중...</p>';
 
         Promise.all([
             fetchJson(API_BASE + '/activities/list').then(function (r) { return r.data; }),
             fetchJson(API_BASE + '/offers/list').then(function (r) { return r.data; })
         ]).then(function (results) {
-            var actRes = results[0];
-            var offRes = results[1];
+            var actRes = results[0] || {};
+            var offRes = results[1] || {};
 
             if (actRes.activities && Array.isArray(actRes.activities)) {
                 lastActivities = actRes.activities;
                 applyActivityFilter();
+                showActivitiesStatus('Activities: ' + lastActivities.length + '개, Offers: ' + (offRes.offers ? offRes.offers.length : 0) + '개 로드됨', 'success');
             } else {
                 lastActivities = [];
-                myActivitiesList.innerHTML = '<p class="content-list-empty">' + (actRes.error || 'Failed to load activities.') + '</p>';
+                var actErr = actRes.error || 'Failed to load activities.';
+                if (myActivitiesList) myActivitiesList.innerHTML = '<p class="content-list-empty">Activities 오류: ' + escapeHtml(String(actErr)) + '</p>';
+                showActivitiesStatus('Activities 오류: ' + actErr, 'error');
             }
 
             if (offRes.offers && Array.isArray(offRes.offers)) {
-                myOffersList.innerHTML = offRes.offers.length === 0
-                    ? '<p class="content-list-empty">No offers.</p>'
-                    : offersHeader + offRes.offers.map(renderOfferRow).join('');
+                if (myOffersList) {
+                    myOffersList.innerHTML = offRes.offers.length === 0
+                        ? '<p class="content-list-empty">No offers.</p>'
+                        : offersHeader + offRes.offers.map(renderOfferRow).join('');
+                }
             } else {
-                myOffersList.innerHTML = '<p class="content-list-empty">' + (offRes.error || 'Failed to load offers.') + '</p>';
+                var offErr = offRes.error || 'Failed to load offers.';
+                if (myOffersList) myOffersList.innerHTML = '<p class="content-list-empty">Offers 오류: ' + escapeHtml(String(offErr)) + '</p>';
             }
 
             showStatus('Loaded.', 'success');
         }).catch(function (err) {
-            showStatus('Error: ' + (err.message || 'Request failed'), 'error');
+            var msg = err.message || 'Request failed';
+            showStatus('Error: ' + msg, 'error');
+            showActivitiesStatus('오류: ' + msg + ' (로그인/세션, .env 확인)', 'error');
             lastActivities = [];
-            myActivitiesList.innerHTML = '<p class="content-list-empty">Error loading.</p>';
-            myOffersList.innerHTML = '<p class="content-list-empty">Error loading.</p>';
+            if (myActivitiesList) myActivitiesList.innerHTML = '<p class="content-list-empty">Error loading. ' + escapeHtml(String(msg)) + '</p>';
+            if (myOffersList) myOffersList.innerHTML = '<p class="content-list-empty">Error loading. ' + escapeHtml(String(msg)) + '</p>';
         });
     }
 

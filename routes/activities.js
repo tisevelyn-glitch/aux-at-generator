@@ -4,8 +4,11 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const router = express.Router();
-const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, fetchPropertiesForWorkspace } = require('../lib/adobe');
+const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, fetchPropertiesForWorkspace, getActivityChangelog, changelogHasAuthor } = require('../lib/adobe');
 const { addCreated, getCreatedIdsForApi, removeFromCreated } = require('../lib/created-activities-store');
+
+var CONCURRENCY = 5;
+var MAX_ACTIVITIES_FOR_CHANGELOG = 80;
 
 // GET /api/activities/list — workspaceId 없으면 전체 워크스페이스 조회(각 항목에 workspace 정보 포함)
 router.get('/list', async function (req, res) {
@@ -41,7 +44,14 @@ router.get('/list', async function (req, res) {
                 return Object.assign({}, a, { workspaceId: workspaceId, workspaceName: workspaceName });
             });
             var createdIds = getCreatedIdsForApi(tenant, config.clientId);
-            activities = activities.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+            if (config.creatorEmail || config.creatorImsUserId) {
+                activities = await filterActivitiesByCreator(activities, accessToken, tenant, createdIds);
+            } else {
+                activities = activities.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+                activities = activities.map(function (a) {
+                    return Object.assign({}, a, { createdVia: 'api' });
+                });
+            }
             return res.json({ activities: activities });
         }
 
@@ -69,13 +79,51 @@ router.get('/list', async function (req, res) {
             }
         }
         var createdIds = getCreatedIdsForApi(tenant, config.clientId);
-        all = all.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+        if (config.creatorEmail || config.creatorImsUserId) {
+            all = await filterActivitiesByCreator(all, accessToken, tenant, createdIds);
+        } else {
+            all = all.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+            all = all.map(function (a) {
+                return Object.assign({}, a, { createdVia: 'api' });
+            });
+        }
         res.json({ activities: all });
     } catch (error) {
         console.error('[Activities list] catch:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
+/**
+ * CREATOR_EMAIL 설정 시 Changelog API로 작성자 필터 + createdVia(api|ui) 부여
+ */
+async function filterActivitiesByCreator(activities, accessToken, tenant, createdIds) {
+    var creator = config.creatorImsUserId || config.creatorEmail;
+    if (!creator || activities.length === 0) return activities;
+    var list = activities.slice(0, MAX_ACTIVITIES_FOR_CHANGELOG);
+    var result = [];
+    for (var i = 0; i < list.length; i += CONCURRENCY) {
+        var batch = list.slice(i, i + CONCURRENCY);
+        var changelogs = await Promise.all(batch.map(function (a) {
+            var id = a.id || a.activityId;
+            return getActivityChangelog(tenant, accessToken, id).then(function (cl) {
+                return { activity: a, changelog: cl };
+            });
+        }));
+        for (var j = 0; j < changelogs.length; j++) {
+            var item = changelogs[j];
+            if (changelogHasAuthor(item.changelog, creator)) {
+                var idStr = String(item.activity.id || item.activity.activityId);
+                var createdVia = createdIds.has(idStr) ? 'api' : 'ui';
+                result.push(Object.assign({}, item.activity, { createdVia: createdVia }));
+            }
+        }
+    }
+    if (activities.length > MAX_ACTIVITIES_FOR_CHANGELOG) {
+        console.log('[Activities list] Filtered by creator: showing first ' + MAX_ACTIVITIES_FOR_CHANGELOG + ' of ' + activities.length);
+    }
+    return result;
+}
 
 // GET /api/activities/:id — 액티비티 단건 상세 (수정 폼용)
 router.get('/:id', async function (req, res) {

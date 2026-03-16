@@ -519,7 +519,21 @@ textarea.form-control {
 }
 
 .content-list-with-ws .content-list-item-ws {
-    grid-template-columns: 36px 120px 90px 1fr auto 72px;
+    grid-template-columns: 36px 120px 90px 1fr auto 72px 72px;
+}
+
+.content-list-via {
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+}
+
+.content-list-via .via-api {
+    color: hsl(var(--jss-primary-text));
+    font-weight: 500;
+}
+
+.content-list-via .via-ui {
+    color: hsl(var(--foreground));
 }
 
 .content-list-check {
