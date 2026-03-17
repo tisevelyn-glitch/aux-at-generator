@@ -21,6 +21,38 @@ function showResult(message, type) {
     resultBox.scrollTop = resultBox.scrollHeight;
 }
 
+/**
+ * Result box에 클릭 가능한 링크 1줄 추가
+ */
+function showResultLink(label, url, type) {
+    if (!resultBox) return;
+    var line = document.createElement('div');
+    line.className = 'result-line';
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = label;
+    line.appendChild(a);
+    resultBox.appendChild(line);
+    resultBox.className = 'result-box ' + (type || '');
+    resultBox.scrollTop = resultBox.scrollHeight;
+}
+
+/**
+ * Adobe Target UI Activity Details URL 생성 (A/B manual)
+ * 룰 예시:
+ * https://experience.adobe.com/#/@samsungeu/target/activities/activity-details/ab_manual/{activityId}/overview
+ */
+function buildTargetAbActivityUrl(activityId) {
+    var id = String(activityId || '').trim();
+    if (!id) return '';
+    // 필요 시 window.TARGET_ORG_SLUG로 오버라이드 가능
+    var orgSlug = (window.TARGET_ORG_SLUG && String(window.TARGET_ORG_SLUG).trim()) || 'samsungeu';
+    return 'https://experience.adobe.com/#/@' + encodeURIComponent(orgSlug)
+        + '/target/activities/activity-details/ab_manual/' + encodeURIComponent(id) + '/overview';
+}
+
 function escapeHtml(s) {
     var div = document.createElement('div');
     div.textContent = s;

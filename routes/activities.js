@@ -153,7 +153,10 @@ router.get('/:id', async function (req, res) {
     }
 });
 
-// DELETE /api/activities/:id — 액티비티 삭제 (내가 등록한 것만: store에 있을 때만 삭제 후 store에서 제거)
+// DELETE /api/activities/:id — 액티비티 삭제
+// - 기본 안전장치: created-activities-store에 등록된(이 앱이 생성했다고 기록된) 것만 삭제
+// - 추가 허용: .env에 CREATOR_EMAIL 또는 CREATOR_IMS_USER_ID가 설정된 경우,
+//            삭제 직전에 changelog를 조회해 해당 작성자/수정자 이력이 있으면 삭제 허용
 router.delete('/:id', async function (req, res) {
     try {
         var activityId = req.params.id;
@@ -161,10 +164,32 @@ router.delete('/:id', async function (req, res) {
         var tenant = config.tenant;
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
         var createdIds = getCreatedIdsForApi(tenant, config.clientId);
-        if (!createdIds.has(String(activityId))) {
-            return res.status(403).json({ error: 'This activity was not registered by this app. Only activities you created via this app can be deleted here.' });
-        }
+        var idStr = String(activityId);
+
+        // 1) store에 등록된 건 항상 허용
+        var allowDelete = createdIds.has(idStr);
+
+        // 2) 작성자(creator) 기반 허용: changelog에 CREATOR가 포함되면 허용
+        var creator = config.creatorImsUserId || config.creatorEmail;
         var accessToken = await getToken();
+        if (!allowDelete && creator) {
+            var cl = await getActivityChangelog(tenant, accessToken, idStr);
+            if (changelogHasAuthor(cl, creator)) {
+                allowDelete = true;
+            }
+        }
+
+        if (!allowDelete) {
+            if (creator) {
+                return res.status(403).json({
+                    error: 'This activity is not deletable by this app. It is not registered in this app store and its changelog does not match CREATOR_EMAIL/CREATOR_IMS_USER_ID.'
+                });
+            }
+            return res.status(403).json({
+                error: 'This activity was not registered by this app. Only activities registered by this app can be deleted here. (Tip: set CREATOR_EMAIL or CREATOR_IMS_USER_ID to enable creator-based deletion.)'
+            });
+        }
+
         var url = 'https://mc.adobe.io/' + tenant + '/target/activities/ab/' + encodeURIComponent(activityId);
         var r = await fetch(url, {
             method: 'DELETE',
@@ -180,6 +205,7 @@ router.delete('/:id', async function (req, res) {
         if (!r.ok) {
             return res.status(r.status).json({ error: (data && (data.message || data.errors && data.errors[0] && data.errors[0].message)) || text || 'Failed to delete activity' });
         }
+        // store에 있던 항목이면 정리 (creator 기반 삭제로 들어온 경우엔 no-op)
         removeFromCreated(tenant, config.clientId, activityId);
         res.json({ success: true, activityId: activityId });
     } catch (error) {

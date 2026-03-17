@@ -34,10 +34,14 @@
         var updated = a.updatedAt || a.modifiedAt || a.lastModified || '—';
         var via = a.createdVia || '—';
         var viaLabel = via === 'api' ? 'API 생성' : (via === 'ui' ? 'UI 생성' : via);
+        var url = (typeof buildTargetAbActivityUrl === 'function') ? buildTargetAbActivityUrl(id) : '';
+        var idCell = url
+            ? ('<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(String(id)) + '</a>')
+            : escapeHtml(String(id));
         return '<div class="content-list-item content-list-item-ws" data-activity-id="' + escapeHtml(String(id)) + '">' +
             '<span class="content-list-check"><input type="checkbox" class="activity-row-cb" value="' + escapeHtml(String(id)) + '" aria-label="Select"></span>' +
             '<span class="content-list-ws">' + escapeHtml(String(ws)) + '</span>' +
-            '<span class="content-list-id">' + escapeHtml(String(id)) + '</span>' +
+            '<span class="content-list-id">' + idCell + '</span>' +
             '<span class="content-list-name">' + escapeHtml(name) + '</span>' +
             '<span class="content-list-meta">' + escapeHtml(String(state)) + ' · ' + escapeHtml(String(updated).slice(0, 10)) + '</span>' +
             '<span class="content-list-via">' + escapeHtml(viaLabel) + '</span>' +

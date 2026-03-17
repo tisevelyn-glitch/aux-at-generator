@@ -67,6 +67,10 @@ async function runAutomation() {
             if (!actR.ok) throw new Error(actData.error || '[' + wLabel + '] Failed to create activity');
             var activityId = actData.activityId;
             showResult('[' + wLabel + '] Activity created. ID: ' + activityId + '\n', 'success');
+            if (typeof buildTargetAbActivityUrl === 'function' && typeof showResultLink === 'function') {
+                var url = buildTargetAbActivityUrl(activityId);
+                if (url) showResultLink('Open in Target UI: ' + url, url, 'success');
+            }
 
             showResult('Step 3: Setting state to \'' + activityStatus + '\'...\n', 'loading');
             var stateR = await fetchJson(API_BASE + '/activities/state', {
