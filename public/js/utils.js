@@ -40,17 +40,20 @@ function showResultLink(label, url, type) {
 }
 
 /**
- * Adobe Target UI Activity Details URL 생성 (A/B manual)
+ * Adobe Target UI Activity Details URL 생성
+ * - AB-M (ab): ab_manual
+ * - XT (xt): experience_targeting
  * 룰 예시:
- * https://experience.adobe.com/#/@samsungeu/target/activities/activity-details/ab_manual/{activityId}/overview
+ *   AB: https://experience.adobe.com/#/@samsungeu/target/activities/activity-details/ab_manual/{id}/overview
+ *   XT: https://experience.adobe.com/#/@samsungeu/target/activities/activity-details/experience_targeting/{id}/overview
  */
-function buildTargetAbActivityUrl(activityId) {
+function buildTargetAbActivityUrl(activityId, activityType) {
     var id = String(activityId || '').trim();
     if (!id) return '';
-    // 필요 시 window.TARGET_ORG_SLUG로 오버라이드 가능
+    var pathSegment = (activityType || 'ab').toLowerCase() === 'xt' ? 'experience_targeting' : 'ab_manual';
     var orgSlug = (window.TARGET_ORG_SLUG && String(window.TARGET_ORG_SLUG).trim()) || 'samsungeu';
     return 'https://experience.adobe.com/#/@' + encodeURIComponent(orgSlug)
-        + '/target/activities/activity-details/ab_manual/' + encodeURIComponent(id) + '/overview';
+        + '/target/activities/activity-details/' + pathSegment + '/' + encodeURIComponent(id) + '/overview';
 }
 
 function escapeHtml(s) {

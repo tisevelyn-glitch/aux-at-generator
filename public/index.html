@@ -48,10 +48,15 @@
             </div>
             <div class="card-body">
                 <div class="form-group">
-                    <label for="workspaceSelect">Select workspace</label>
-                    <select id="workspaceSelect" class="form-control">
-                        <option value="">— Select workspace —</option>
-                    </select>
+                    <label>Workspaces (복수 선택 가능)</label>
+                    <div class="workspace-checkboxes-toolbar">
+                        <label class="workspace-select-all">
+                            <input type="checkbox" id="workspaceSelectAll">
+                            전체 선택
+                        </label>
+                        <div id="workspaceCheckboxes" class="workspace-checkboxes"></div>
+                    </div>
+                    <div class="hint" style="margin-top:8px;">선택한 워크스페이스 각각에 Offer/Activity를 생성합니다. (기존 Offer 모드는 1개만 필요)</div>
                 </div>
                 <div id="tokenStatus" class="status-message"></div>
             </div>
@@ -80,6 +85,8 @@
                         <label for="offerContent">HTML content</label>
                         <textarea id="offerContent" class="form-control" rows="5" placeholder="<div>Enter HTML content</div>"></textarea>
                     </div>
+                    <button type="button" id="offerCreateBtn" class="btn btn-primary" disabled>Create Offer</button>
+                    <div id="offerCreateResult" class="status-message" style="margin-top: 12px; display:none;"></div>
                 </div>
 
                 <div id="offerSelectSection" style="display: none;">
@@ -106,6 +113,13 @@
             </div>
             <div class="card-body">
                 <div class="form-group">
+                    <label for="activityType">Activity type</label>
+                    <select id="activityType" class="form-control">
+                        <option value="ab">AB-M (A/B Manual)</option>
+                        <option value="xt">XT (Experience Targeting)</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="activityName">Activity name</label>
                     <input type="text" id="activityName" class="form-control" placeholder="Enter activity name" required>
                 </div>
@@ -116,7 +130,38 @@
                         <option value="archived">Archived</option>
                     </select>
                 </div>
-                <button id="executeBtn" class="btn btn-success" disabled>Run automation</button>
+
+                <!-- Traffic -->
+                <div id="trafficAbSection" class="traffic-section">
+                    <div class="form-group">
+                        <label>Traffic (AB-M)</label>
+                        <div class="traffic-row">
+                            <div class="traffic-col">
+                                <label for="controlVisitorPct">Control visitor %</label>
+                                <input type="number" id="controlVisitorPct" class="form-control" min="0" max="100" value="50">
+                            </div>
+                            <div class="traffic-col">
+                                <label for="variationVisitorPct">Variation 1 visitor %</label>
+                                <input type="number" id="variationVisitorPct" class="form-control" min="0" max="100" value="50">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="variationOfferId">Variation 1 Offer ID</label>
+                        <input type="text" id="variationOfferId" class="form-control" placeholder="예: 396067">
+                    </div>
+                    <div class="hint">Control Offer ID는 Offer 검색/선택 또는 Create Offer로 만든 Offer ID를 사용합니다.</div>
+                </div>
+
+                <div id="trafficXtSection" class="traffic-section" style="display:none;">
+                    <div class="form-group">
+                        <label>Traffic (XT)</label>
+                        <div class="hint">XT는 현재 Experience 1 단일로 생성됩니다. Offer 매핑은 기존 Offer 1개(또는 create mode에서 자동 생성 Offer)를 사용합니다.</div>
+                    </div>
+                </div>
+                <div class="activity-actions">
+                    <button id="createActivitiesBtn" class="btn btn-success" disabled>Create Activities</button>
+                </div>
             </div>
         </section>
 
@@ -139,7 +184,10 @@
                     <h2>All workspaces</h2>
                 </div>
                 <div class="card-body">
-                    <button type="button" id="myContentLoadBtn" class="btn btn-primary">Load all Activities & Offers</button>
+                    <div class="my-content-load-actions">
+                        <button type="button" id="myContentLoadActivitiesBtn" class="btn btn-primary">Load Activities</button>
+                        <button type="button" id="myContentLoadOffersBtn" class="btn btn-primary">Load Offers</button>
+                    </div>
                     <div id="myContentStatus" class="status-message" style="margin-top: 12px;"></div>
                 </div>
             </section>
@@ -193,18 +241,55 @@
                     <h2>Offers</h2>
                 </div>
                 <div class="card-body">
-                    <div id="myOffersList" class="content-list content-list-with-ws"></div>
+                    <div class="activity-toolbar" style="margin-bottom: 12px;">
+                        <button type="button" id="offerEditBtn" class="btn btn-small">선택 수정</button>
+                        <button type="button" id="offerDeleteBtn" class="btn btn-small">선택 삭제</button>
+                    </div>
+                    <div id="myOffersStatus" class="status-message" style="margin-bottom: 12px; display: none;"></div>
+                    <div id="myOffersList" class="content-list content-list-with-ws-offers"></div>
+                    <div id="myOffersBatchResult" class="batch-result" style="display:none;"></div>
                 </div>
             </section>
+            <div id="offerEditModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="offerEditModalTitle" style="display: none;">
+                <div class="modal-card" style="max-width: 560px;">
+                    <div class="modal-header">
+                        <h3 id="offerEditModalTitle">Edit Offer</h3>
+                        <button type="button" class="modal-close" id="offerEditModalClose" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="offerEditId">
+                        <input type="hidden" id="offerEditIds">
+                        <input type="hidden" id="offerEditWorkspaceId">
+                        <div class="form-group">
+                            <label for="offerEditName">Name</label>
+                            <input type="text" id="offerEditName" class="form-control" placeholder="Offer name">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight:600;font-size:13px;color:#64748b;display:flex;gap:8px;align-items:center;">
+                                <input type="checkbox" id="offerEditApplyName" />
+                                Apply name change to all selected offers
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="offerEditContent">HTML content</label>
+                            <textarea id="offerEditContent" class="form-control" rows="10" placeholder="<div>...</div>"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-small" id="offerEditModalCancel">Cancel</button>
+                        <button type="button" class="btn btn-primary btn-small" id="offerEditSaveBtn">Save</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <!-- /tab-my-content -->
     </div>
 
-    <script src="js/utils.js"></script>
-    <script src="js/offers.js"></script>
-    <script src="js/activities.js"></script>
-    <script src="js/my-content.js"></script>
-    <script src="js/theme.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/utils.js?v=20260325"></script>
+    <script src="js/offers.js?v=20260325"></script>
+    <script src="js/activities.js?v=20260325"></script>
+    <script src="js/my-content.js?v=20260325"></script>
+    <script src="js/theme.js?v=20260325"></script>
+    <script src="js/app.js?v=20260325"></script>
 </body>
 </html>

@@ -13,6 +13,14 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'aux-at-generator-secret-ch
 // Render 등 프록시 뒤에서 세션/쿠키 정상 동작 (trust proxy)
 app.set('trust proxy', 1);
 
+// API는 브라우저 캐시/ETag로 인해 304 응답이 섞일 수 있어 응답 누락을 방지
+app.set('etag', false);
+app.use('/api', function (req, res, next) {
+    res.set('Cache-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
+    next();
+});
+
 // 미들웨어
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -38,7 +46,17 @@ app.post('/api/logout', postLogout);
 app.use(requireAuth);
 
 // 정적 파일 + API (express.static이 / 요청 시 index.html 서빙)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: function (res, filePath) {
+        // Prevent stale JS/CSS causing old behavior after updates
+        if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-store');
+            res.setHeader('Pragma', 'no-cache');
+        }
+    }
+}));
 app.use('/api', require('./routes/auth'));
 app.use('/api/offers', require('./routes/offers'));
 app.use('/api/activities', require('./routes/activities'));

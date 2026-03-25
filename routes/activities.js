@@ -10,6 +10,58 @@ const { addCreated, getCreatedIdsForApi, removeFromCreated } = require('../lib/c
 var CONCURRENCY = 5;
 var MAX_ACTIVITIES_FOR_CHANGELOG = 80;
 
+/**
+ * AB + XT activity 목록 병합 (각각 activityType 부여)
+ * - ab → AB-M, Experience Cloud URL: ab_manual
+ * - xt → XT, Experience Cloud URL: experience_targeting
+ * ab/xt 엔드포인트 실패 시 generic /target/activities 폴백 (activityType 기본 ab)
+ */
+async function fetchActivitiesByWorkspace(tenant, accessToken, workspaceId) {
+    var headers = {
+        'Authorization': 'Bearer ' + accessToken,
+        'X-Api-Key': config.clientId,
+        'X-Admin-Workspace-Id': workspaceId,
+        'Accept': 'application/vnd.adobe.target.v1+json'
+    };
+    var all = [];
+    for (var t = 0; t < 2; t++) {
+        var typePath = t === 0 ? 'ab' : 'xt';
+        var activityType = t === 0 ? 'ab' : 'xt';
+        var url = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '?workspace=' + encodeURIComponent(workspaceId);
+        try {
+            var r = await fetch(url, { method: 'GET', headers: headers });
+            var body;
+            try { body = JSON.parse(await r.text()); } catch (e) { body = null; }
+            if (r.ok && body) {
+                var list = Array.isArray(body) ? body : (body.activities || body.content || body.items || []);
+                list.forEach(function (a) {
+                    all.push(Object.assign({}, a, { activityType: activityType }));
+                });
+            }
+        } catch (e) {
+            console.warn('[Activities list] ' + typePath + ' fetch failed:', e.message);
+        }
+    }
+    if (all.length === 0) {
+        var fallbackUrl = 'https://mc.adobe.io/' + tenant + '/target/activities?workspace=' + encodeURIComponent(workspaceId);
+        try {
+            var r = await fetch(fallbackUrl, { method: 'GET', headers: headers });
+            var body;
+            try { body = JSON.parse(await r.text()); } catch (e) { body = null; }
+            if (r.ok && body) {
+                var list = Array.isArray(body) ? body : (body.activities || body.content || body.items || []);
+                list.forEach(function (a) {
+                    var t = (a.type || a.activityType || 'ab').toLowerCase();
+                    all.push(Object.assign({}, a, { activityType: t === 'xt' ? 'xt' : 'ab' }));
+                });
+            }
+        } catch (e) {
+            console.warn('[Activities list] fallback fetch failed:', e.message);
+        }
+    }
+    return all;
+}
+
 // GET /api/activities/list — workspaceId 없으면 전체 워크스페이스 조회(각 항목에 workspace 정보 포함)
 router.get('/list', async function (req, res) {
     try {
@@ -21,23 +73,7 @@ router.get('/list', async function (req, res) {
         var accessToken = await getToken();
 
         if (workspaceId) {
-            var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/activities?workspace=' + encodeURIComponent(workspaceId);
-            var response = await fetch(apiUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': 'Bearer ' + accessToken,
-                    'X-Api-Key': config.clientId,
-                    'X-Admin-Workspace-Id': workspaceId,
-                    'Accept': 'application/vnd.adobe.target.v1+json'
-                }
-            });
-            var text = await response.text();
-            var data;
-            try { data = JSON.parse(text); } catch (e) { data = null; }
-            if (!response.ok) {
-                return res.status(response.status).json({ error: (data && (data.message || data.error)) || text || 'Failed to list activities' });
-            }
-            var activities = Array.isArray(data) ? data : (data.activities || data.content || data.items || []);
+            var activities = await fetchActivitiesByWorkspace(tenant, accessToken, workspaceId);
             var ws = WORKSPACES.find(function (w) { return String(w.id) === String(workspaceId); });
             var workspaceName = ws ? ws.name : workspaceId;
             activities = activities.map(function (a) {
@@ -59,24 +95,10 @@ router.get('/list', async function (req, res) {
         for (var i = 0; i < WORKSPACES.length; i++) {
             var wsId = WORKSPACES[i].id;
             var wsName = WORKSPACES[i].name;
-            var url = 'https://mc.adobe.io/' + tenant + '/target/activities?workspace=' + encodeURIComponent(wsId);
-            var r = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': 'Bearer ' + accessToken,
-                    'X-Api-Key': config.clientId,
-                    'X-Admin-Workspace-Id': wsId,
-                    'Accept': 'application/vnd.adobe.target.v1+json'
-                }
+            var list = await fetchActivitiesByWorkspace(tenant, accessToken, wsId);
+            list.forEach(function (a) {
+                all.push(Object.assign({}, a, { workspaceId: wsId, workspaceName: wsName }));
             });
-            var body;
-            try { body = JSON.parse(await r.text()); } catch (e) { body = null; }
-            if (r.ok && body) {
-                var list = Array.isArray(body) ? body : (body.activities || body.content || body.items || []);
-                list.forEach(function (a) {
-                    all.push(Object.assign({}, a, { workspaceId: wsId, workspaceName: wsName }));
-                });
-            }
         }
         var createdIds = getCreatedIdsForApi(tenant, config.clientId);
         if (config.creatorEmail || config.creatorImsUserId) {
@@ -126,6 +148,7 @@ async function filterActivitiesByCreator(activities, accessToken, tenant, create
 }
 
 // GET /api/activities/:id — 액티비티 단건 상세 (수정 폼용)
+// activityType=ab|xt 쿼리 지원 (기본 ab). URL 경로: ab → ab, xt → xt
 router.get('/:id', async function (req, res) {
     try {
         var activityId = req.params.id;
@@ -133,7 +156,8 @@ router.get('/:id', async function (req, res) {
         var tenant = config.tenant;
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
         var accessToken = await getToken();
-        var url = 'https://mc.adobe.io/' + tenant + '/target/activities/ab/' + encodeURIComponent(activityId);
+        var typePath = (req.query.activityType || 'ab').toLowerCase() === 'xt' ? 'xt' : 'ab';
+        var url = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '/' + encodeURIComponent(activityId);
         var r = await fetch(url, {
             method: 'GET',
             headers: {
@@ -190,7 +214,8 @@ router.delete('/:id', async function (req, res) {
             });
         }
 
-        var url = 'https://mc.adobe.io/' + tenant + '/target/activities/ab/' + encodeURIComponent(activityId);
+        var typePath = (req.query.activityType || 'ab').toLowerCase() === 'xt' ? 'xt' : 'ab';
+        var url = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '/' + encodeURIComponent(activityId);
         var r = await fetch(url, {
             method: 'DELETE',
             headers: {
@@ -228,7 +253,8 @@ router.put('/:id/options', async function (req, res) {
             return res.status(403).json({ error: 'Only activities created via this app can be updated.' });
         }
         var accessToken = await getToken();
-        var getUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/ab/' + encodeURIComponent(activityId);
+        var typePath = (req.query.activityType || 'ab').toLowerCase() === 'xt' ? 'xt' : 'ab';
+        var getUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '/' + encodeURIComponent(activityId);
         var getR = await fetch(getUrl, {
             method: 'GET',
             headers: {
@@ -258,7 +284,7 @@ router.put('/:id/options', async function (req, res) {
             var updated = optionMap[String(o.optionLocalId)];
             return updated ? Object.assign({}, o, { offerId: updated.offerId }) : o;
         });
-        var patchUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/ab/' + encodeURIComponent(activityId) + '?workspace=' + encodeURIComponent(workspaceId);
+        var patchUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '/' + encodeURIComponent(activityId) + '?workspace=' + encodeURIComponent(workspaceId);
         var patchR = await fetch(patchUrl, {
             method: 'PATCH',
             headers: {
@@ -302,16 +328,26 @@ router.post('/remove-from-mine', function (req, res) {
     }
 });
 
-// POST /api/activities/create — A/B Test Activity 생성 (v3 API)
+// POST /api/activities/create — Activity 생성 (v3 API)
+// activityType: ab (AB-M) | xt (XT)
 router.post('/create', async function (req, res) {
     try {
         var name = (req.body.name || '').trim();
-        var offerId = req.body.offerId;
         var workspaceId = String(req.body.workspaceId || '').trim();
         var activityStatus = (req.body.activityStatus || '').trim();
+        var activityType = ((req.body.activityType || 'ab') + '').toLowerCase();
+        if (activityType !== 'xt') activityType = 'ab';
 
-        if (!name || !offerId) {
-            return res.status(400).json({ error: 'Activity name and Offer ID are required.' });
+        // Backward compatible fields (offerId) + new traffic-mapping fields
+        var offerId = req.body.offerId; // fallback (legacy)
+        var controlOfferId = req.body.controlOfferId;
+        var variationOfferId = req.body.variationOfferId;
+        var experienceOfferId = req.body.experienceOfferId;
+        var controlVisitorPct = req.body.controlVisitorPct;
+        var variationVisitorPct = req.body.variationVisitorPct;
+
+        if (!name) {
+            return res.status(400).json({ error: 'Activity name is required.' });
         }
         var tenant = config.tenant;
         if (!tenant || !config.clientId) {
@@ -321,9 +357,8 @@ router.post('/create', async function (req, res) {
         var accessToken = await getToken();
         var workspaceIdStr = workspaceId || WORKSPACES[0].id;
         var isNonDefault = workspaceIdStr !== DEFAULT_WORKSPACE_ID;
-        var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/ab?workspace=' + encodeURIComponent(workspaceIdStr);
-
-        var offerIdNum = Number(offerId) || offerId;
+        var typePath = activityType === 'xt' ? 'xt' : 'ab';
+        var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '?workspace=' + encodeURIComponent(workspaceIdStr);
         var propertyIds = [];
         if (isNonDefault) {
             propertyIds = await fetchPropertiesForWorkspace(accessToken, tenant, workspaceIdStr);
@@ -337,24 +372,76 @@ router.post('/create', async function (req, res) {
 
         var state = activityStatus || 'saved';
         var mboxName = 'default';
-        var payload = {
-            name: name || 'API_Test_Activity_' + Date.now(),
-            state: state,
-            priority: 5,
-            workspace: workspaceIdStr,
-            locations: { mboxes: [{ locationLocalId: 0, name: mboxName }] },
-            options: [{ optionLocalId: 0, offerId: offerIdNum }],
-            experiences: [
-                { experienceLocalId: 0, name: 'Control', visitorPercentage: 50, optionLocations: [{ locationLocalId: 0, optionLocalId: 0 }] },
-                { experienceLocalId: 1, name: 'Variation 1', visitorPercentage: 50, optionLocations: [{ locationLocalId: 0, optionLocalId: 0 }] }
-            ],
-            metrics: [
-                { metricLocalId: 32767, name: 'Page Views', conversion: true, mboxes: [{ name: mboxName, successEvent: 'mbox_shown' }], action: { type: 'count_once' } }
-            ]
-        };
+        // pct helper
+        function clampPct(n) {
+            n = Number(n);
+            if (isNaN(n)) return 50;
+            if (n < 0) return 0;
+            if (n > 100) return 100;
+            return n;
+        }
+
+        var payload;
+        if (activityType === 'xt') {
+            // XT: currently creates a single Experience (Experience 1)
+            var effectiveExperienceOfferId = experienceOfferId || offerId;
+            if (!effectiveExperienceOfferId) {
+                return res.status(400).json({ error: 'XT requires experienceOfferId (or legacy offerId).' });
+            }
+            var offerIdNum = Number(effectiveExperienceOfferId) || effectiveExperienceOfferId;
+            payload = {
+                name: name || 'API_Test_Activity_' + Date.now(),
+                state: state,
+                priority: 5,
+                workspace: workspaceIdStr,
+                locations: { mboxes: [{ locationLocalId: 0, name: mboxName }] },
+                options: [{ optionLocalId: 0, offerId: offerIdNum }],
+                experiences: [
+                    { experienceLocalId: 0, name: 'Experience 1', optionLocations: [{ locationLocalId: 0, optionLocalId: 0 }] }
+                ],
+                metrics: [
+                    { metricLocalId: 32767, name: 'Page Views', conversion: true, mboxes: [{ name: mboxName, successEvent: 'mbox_shown' }], action: { type: 'count_once' } }
+                ]
+            };
+        } else {
+            // AB-M: Control + Variation with separate offers
+            var effectiveControlOfferId = controlOfferId || offerId;
+            var effectiveVariationOfferId = variationOfferId || offerId;
+            if (!effectiveControlOfferId || !effectiveVariationOfferId) {
+                return res.status(400).json({ error: 'AB-M requires controlOfferId and variationOfferId (or legacy offerId fallback).' });
+            }
+
+            var controlPct = clampPct(controlVisitorPct);
+            var variationPct = clampPct(variationVisitorPct);
+            // ensure sum=100 (Adobe may validate this)
+            if (controlPct + variationPct !== 100) variationPct = 100 - controlPct;
+            if (variationPct < 0) { variationPct = 0; controlPct = 100; }
+
+            var controlOfferIdNum = Number(effectiveControlOfferId) || effectiveControlOfferId;
+            var variationOfferIdNum = Number(effectiveVariationOfferId) || effectiveVariationOfferId;
+
+            payload = {
+                name: name || 'API_Test_Activity_' + Date.now(),
+                state: state,
+                priority: 5,
+                workspace: workspaceIdStr,
+                locations: { mboxes: [{ locationLocalId: 0, name: mboxName }] },
+                options: [
+                    { optionLocalId: 0, offerId: controlOfferIdNum },
+                    { optionLocalId: 1, offerId: variationOfferIdNum }
+                ],
+                experiences: [
+                    { experienceLocalId: 0, name: 'Control', visitorPercentage: controlPct, optionLocations: [{ locationLocalId: 0, optionLocalId: 0 }] },
+                    { experienceLocalId: 1, name: 'Variation 1', visitorPercentage: variationPct, optionLocations: [{ locationLocalId: 0, optionLocalId: 1 }] }
+                ],
+                metrics: [
+                    { metricLocalId: 32767, name: 'Page Views', conversion: true, mboxes: [{ name: mboxName, successEvent: 'mbox_shown' }], action: { type: 'count_once' } }
+                ]
+            };
+        }
         if (propertyIds.length > 0) payload.propertyIds = propertyIds;
 
-        console.log('[Activity Create] url=%s', apiUrl);
+        console.log('[Activity Create] type=%s url=%s', typePath, apiUrl);
 
         var response = await fetch(apiUrl, {
             method: 'POST',
@@ -381,7 +468,7 @@ router.post('/create', async function (req, res) {
 
         var newId = data.id || data.activityId;
         addCreated(tenant, config.clientId, newId);
-        res.json({ activityId: newId, activity: data });
+        res.json({ activityId: newId, activityType: activityType, activity: data });
     } catch (error) {
         console.error('[Activity Create] catch:', error);
         res.status(500).json({ error: error.message });
