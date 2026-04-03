@@ -349,6 +349,21 @@ textarea.form-control {
     color: hsl(var(--muted-foreground));
 }
 
+/* Offer 검색: 오퍼 소속 WS ≠ 검색 시 선택 WS (Default WS 체크 시에는 검정 유지 — JS에서 클래스 생략) */
+.offer-result-body .offer-workspace-value.offer-workspace-mismatch {
+    color: hsl(var(--jss-error-text));
+    font-weight: 600;
+}
+
+.offer-result-body .offer-row-note .offer-workspace-note {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+}
+
+.dark .offer-result-body .offer-workspace-value.offer-workspace-mismatch {
+    color: hsl(0 72% 68%);
+}
+
 .offer-result-empty {
     margin-top: var(--sp-1);
     padding: var(--sp-2);
@@ -868,6 +883,88 @@ textarea.form-control {
     color: hsl(var(--muted-foreground));
     font-size: 13px;
     font-weight: 500;
+}
+
+.traffic-ab-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.traffic-sum-display.traffic-sum-ok {
+    color: hsl(var(--muted-foreground));
+}
+
+.traffic-sum-display.traffic-sum-bad {
+    color: hsl(var(--jss-error-text));
+    font-weight: 600;
+}
+
+.ab-experience-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.ab-exp-row {
+    border: 1px solid hsl(var(--border));
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: hsl(var(--card) / 0.45);
+}
+
+.ab-exp-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.ab-exp-title {
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: -0.02em;
+}
+
+.ab-exp-fields {
+    display: grid;
+    grid-template-columns: minmax(100px, 120px) 1fr;
+    gap: 8px 12px;
+    align-items: center;
+}
+
+@media (max-width: 560px) {
+    .ab-exp-fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ab-exp-fields label.ab-exp-label-pct {
+    grid-column: 1;
+}
+
+.ab-exp-fields .ab-exp-pct {
+    max-width: 120px;
+}
+
+.ab-exp-fields .ab-exp-offer-wrap {
+    grid-column: 1 / -1;
+}
+
+.ab-exp-default-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: hsl(var(--muted-foreground));
+}
+
+.ab-exp-default-row input[type="checkbox"] {
+    width: auto;
 }
 
 /* ── My Content load buttons ──────────────────────────────── */

@@ -14,6 +14,11 @@
             var data = r.data;
             if (!r.ok) throw new Error(data.error || 'Failed to load workspaces');
             workspacesList = data.workspaces || [];
+            if (data.defaultWorkspaceId != null) {
+                window.DEFAULT_WORKSPACE_ID = String(data.defaultWorkspaceId);
+            } else if (workspacesList[0] && workspacesList[0].id != null) {
+                window.DEFAULT_WORKSPACE_ID = String(workspacesList[0].id);
+            }
             if (wsCheckboxesEl) {
                 var html = '';
                 workspacesList.forEach(function (ws) {

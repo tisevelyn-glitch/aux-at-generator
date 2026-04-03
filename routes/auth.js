@@ -4,11 +4,11 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const router = express.Router();
-const { config, WORKSPACES, IMS_TOKEN_URL } = require('../lib/adobe');
+const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, IMS_TOKEN_URL } = require('../lib/adobe');
 
 // GET /api/workspaces
 router.get('/workspaces', function (req, res) {
-    res.json({ workspaces: WORKSPACES });
+    res.json({ workspaces: WORKSPACES, defaultWorkspaceId: DEFAULT_WORKSPACE_ID });
 });
 
 // GET /api/config

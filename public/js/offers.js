@@ -19,6 +19,59 @@ function getSelectedWorkspaceIds() {
     return ids;
 }
 
+function getDefaultWorkspaceIdForUi() {
+    if (typeof window !== 'undefined' && window.DEFAULT_WORKSPACE_ID) return String(window.DEFAULT_WORKSPACE_ID);
+    if (typeof workspacesList !== 'undefined' && workspacesList[0] && workspacesList[0].id != null) {
+        return String(workspacesList[0].id);
+    }
+    return '';
+}
+
+/** Target UI 스타일: HTML Offer, JSON Offer 등 */
+function formatOfferTypeLabel(offer) {
+    var raw = offer.contentType != null ? offer.contentType : offer.type;
+    if (raw == null && offer.offerType != null) raw = offer.offerType;
+    if (raw == null || raw === '') return '—';
+    if (typeof raw === 'number') {
+        if (raw === 1) return 'HTML Offer';
+        if (raw === 2) return 'JSON Offer';
+        return '— (' + raw + ')';
+    }
+    var s = String(raw).trim();
+    if (/^html$/i.test(s)) return 'HTML Offer';
+    if (/^json$/i.test(s)) return 'JSON Offer';
+    if (/^redirect$/i.test(s)) return 'Redirect Offer';
+    if (/^dynamic$/i.test(s)) return 'Dynamic Offer';
+    if (/^xml$/i.test(s)) return 'XML Offer';
+    return s;
+}
+
+function formatOfferDateTimeForUi(iso) {
+    if (iso == null || iso === '') return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    try {
+        return d.toLocaleString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    } catch (e) {
+        return String(iso);
+    }
+}
+
+function formatOfferLastModifiedLine(offer) {
+    var when = formatOfferDateTimeForUi(offer.modifiedAt || offer.updatedAt || offer.lastModified || offer.lastModifiedAt);
+    var who = offer.modifiedBy || offer.lastModifiedBy;
+    if (who && when && when !== '—') return when + ' by ' + who;
+    if (when && when !== '—') return when;
+    return '—';
+}
+
 var selectedOfferId = null;
 var selectedOffer = null;
 
@@ -66,16 +119,29 @@ async function searchOfferById() {
         if (!r.ok) throw new Error(data.error || 'Offer not found');
 
         var offer = data.offer || data;
-        selectedOfferId = String(offer.id || offer.offerId || id);
+        selectedOfferId = String(offer.id != null && offer.id !== '' ? offer.id : (offer.offerId != null && offer.offerId !== '' ? offer.offerId : id)).trim();
         selectedOffer = offer;
         if (data.foundInWorkspace) {
             offer.foundInWorkspace = data.foundInWorkspace;
             offer.foundInWorkspaceName = getWorkspaceNameById(data.foundInWorkspace) || data.foundInWorkspace;
         }
+        offer.searchRequestedWorkspaceId = wsId;
+        offer.searchRequestedWorkspaceName = getWorkspaceNameById(wsId) || wsId;
+        var defaultId = getDefaultWorkspaceIdForUi();
+        var selectedIds = getSelectedWorkspaceIds();
+        var defaultWorkspaceChecked = defaultId && selectedIds.some(function (sid) { return String(sid) === String(defaultId); });
+        var actualId = data.foundInWorkspace;
+        var actualInSelectedSet = actualId && selectedIds.some(function (sid) { return String(sid) === String(actualId); });
+        offer.workspaceMismatchHighlight = selectedIds.length > 0 && !actualInSelectedSet && !defaultWorkspaceChecked;
         renderOfferResult(offer);
         if (offerSearchResult) { offerSearchResult.style.display = 'block'; offerSearchResult.classList.add('selected'); }
         var msg = 'Found offer: ' + (offer.name || selectedOfferId);
-        if (offer.foundInWorkspaceName) msg += ' (in ' + offer.foundInWorkspaceName + ')';
+        if (offer.foundInWorkspaceName) msg += ' (오퍼 소속 WS: ' + offer.foundInWorkspaceName + ')';
+        if (!actualInSelectedSet && defaultWorkspaceChecked && selectedIds.length > 0) {
+            msg += ' — 오퍼 소속 WS가 현재 체크한 WS 목록에 없지만, Default WS가 선택되어 있어 Workspace는 검정으로 표시됩니다.';
+        } else if (!actualInSelectedSet && selectedIds.length > 0) {
+            msg += ' — 오퍼 소속 WS가 현재 체크한 워크스페이스에 포함되지 않습니다.';
+        }
         showStatus(tokenStatus, msg, 'success');
     } catch (error) {
         showStatus(tokenStatus, 'Error: ' + error.message, 'error');
@@ -114,7 +180,7 @@ async function createOffer() {
         });
         var data = r.data || {};
         if (!r.ok) throw new Error(data.error || 'Offer create failed');
-        var offerId = String(data.offerId || (data.offer && (data.offer.id || data.offer.offerId)) || '');
+        var offerId = String(data.offerId || (data.offer && (data.offer.id != null ? data.offer.id : data.offer.offerId)) || '').trim();
         if (!offerId) throw new Error('Offer created but offerId missing');
 
         // make it selectable immediately for activity mapping
@@ -154,15 +220,45 @@ async function createOffer() {
 function renderOfferResult(offer) {
     if (!offerResultBody) return;
     var name = offer.name != null ? offer.name : '';
-    var type = offer.type || offer.contentType || '—';
-    var workspace = (offer.workspace && offer.workspace.name) || '—';
-    if (offer.foundInWorkspaceName) workspace = offer.foundInWorkspaceName;
-    var updated = offer.updatedAt || offer.modifiedAt || offer.lastModified || '—';
-    offerResultBody.innerHTML =
-        '<div class="offer-row"><span class="offer-label">Name</span><span>' + escapeHtml(name) + '</span></div>' +
-        '<div class="offer-row"><span class="offer-label">Type</span><span>' + escapeHtml(String(type)) + '</span></div>' +
-        '<div class="offer-row"><span class="offer-label">Workspace</span><span>' + escapeHtml(String(workspace)) + '</span></div>' +
-        '<div class="offer-row"><span class="offer-label">Last updated</span><span>' + escapeHtml(String(updated)) + '</span></div>';
+    var offerIdDisplay = offer.id != null && offer.id !== '' ? String(offer.id) : (selectedOfferId || '—');
+    var typeLabel = formatOfferTypeLabel(offer);
+    var workspace = offer.foundInWorkspaceName
+        || (offer.workspace && offer.workspace.name)
+        || (offer.workspace && offer.workspace.id != null ? String(offer.workspace.id) : '')
+        || '—';
+    var lastModifiedLine = formatOfferLastModifiedLine(offer);
+    var createdLine = '';
+    var cAt = offer.createdAt || offer.created;
+    var cBy = offer.createdBy || offer.author;
+    if (cAt || cBy) {
+        var cWhen = formatOfferDateTimeForUi(cAt);
+        if (cBy && cWhen && cWhen !== '—') createdLine = cWhen + ' by ' + cBy;
+        else if (cWhen && cWhen !== '—') createdLine = cWhen;
+        else if (cBy) createdLine = String(cBy);
+    }
+    var wsValueClass = 'offer-workspace-value';
+    if (offer.workspaceMismatchHighlight) wsValueClass += ' offer-workspace-mismatch';
+    var rows =
+        '<div class="offer-row"><span class="offer-label">Name</span><span>' + escapeHtml(String(name)) + '</span></div>' +
+        '<div class="offer-row"><span class="offer-label">Offer ID</span><span>' + escapeHtml(String(offerIdDisplay)) + '</span></div>' +
+        '<div class="offer-row"><span class="offer-label">Type</span><span>' + escapeHtml(typeLabel) + '</span></div>' +
+        '<div class="offer-row"><span class="offer-label">Workspace</span><span class="' + wsValueClass + '">' + escapeHtml(String(workspace)) + '</span></div>' +
+        '<div class="offer-row"><span class="offer-label">Last modified</span><span>' + escapeHtml(lastModifiedLine) + '</span></div>';
+    if (createdLine) {
+        rows += '<div class="offer-row"><span class="offer-label">Created</span><span>' + escapeHtml(createdLine) + '</span></div>';
+    }
+    if (offer.description) {
+        rows += '<div class="offer-row"><span class="offer-label">Description</span><span>' + escapeHtml(String(offer.description)) + '</span></div>';
+    }
+    if (offer.status != null && String(offer.status).trim() !== '') {
+        rows += '<div class="offer-row"><span class="offer-label">Status</span><span>' + escapeHtml(String(offer.status)) + '</span></div>';
+    } else if (offer.state != null && String(offer.state).trim() !== '') {
+        rows += '<div class="offer-row"><span class="offer-label">State</span><span>' + escapeHtml(String(offer.state)) + '</span></div>';
+    }
+    if (offer.workspaceMismatchHighlight && offer.searchRequestedWorkspaceName) {
+        rows += '<div class="offer-row offer-row-note"><span class="offer-label">검색 시 선택</span><span class="offer-workspace-note">' + escapeHtml(String(offer.searchRequestedWorkspaceName)) + '</span></div>';
+    }
+    offerResultBody.innerHTML = rows;
 }
 
 if (offerSearchResult) {

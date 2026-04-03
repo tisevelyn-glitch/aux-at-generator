@@ -130,27 +130,33 @@
                         <option value="archived">Archived</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label for="activityPriority">Priority</label>
+                    <input type="number" id="activityPriority" class="form-control" min="0" max="999" value="5" placeholder="5">
+                    <div class="hint">Target 액티비티 우선순위 (0–999, 기본 5)</div>
+                </div>
+                <div class="form-group">
+                    <label for="activityPropertyIds">Target Property IDs <span class="hint">(선택)</span></label>
+                    <input type="text" id="activityPropertyIds" class="form-control" placeholder="비워두면 워크스페이스에 연결된 속성을 자동 사용 (예: 3605 또는 3605, 3606)">
+                </div>
+                <div class="form-group">
+                    <label class="form-check-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" id="activityOmitPropertyIds" value="1">
+                        <span>Activity 요청에서 propertyIds 생략 <span class="hint">(오퍼가 속성과 안 맞을 때 시도)</span></span>
+                    </label>
+                </div>
 
-                <!-- Traffic -->
+                <!-- Traffic: AB-M — Experience A~E, 최대 5개 -->
                 <div id="trafficAbSection" class="traffic-section">
                     <div class="form-group">
                         <label>Traffic (AB-M)</label>
-                        <div class="traffic-row">
-                            <div class="traffic-col">
-                                <label for="controlVisitorPct">Control visitor %</label>
-                                <input type="number" id="controlVisitorPct" class="form-control" min="0" max="100" value="50">
-                            </div>
-                            <div class="traffic-col">
-                                <label for="variationVisitorPct">Variation 1 visitor %</label>
-                                <input type="number" id="variationVisitorPct" class="form-control" min="0" max="100" value="50">
-                            </div>
+                        <div class="traffic-ab-toolbar">
+                            <button type="button" id="abExperienceAddBtn" class="btn btn-small" title="최대 5개까지">+ Experience</button>
+                            <span id="trafficAbSumDisplay" class="hint traffic-sum-display" aria-live="polite"></span>
                         </div>
+                        <div id="abExperienceRows" class="ab-experience-rows"></div>
                     </div>
-                    <div class="form-group">
-                        <label for="variationOfferId">Variation 1 Offer ID</label>
-                        <input type="text" id="variationOfferId" class="form-control" placeholder="예: 396067">
-                    </div>
-                    <div class="hint">Control Offer ID는 Offer 검색/선택 또는 Create Offer로 만든 Offer ID를 사용합니다.</div>
+                    <div class="hint">Experience별 트래픽 합계는 100%여야 합니다. 기본 콘텐츠는 Target API의 <code>offerId: 0</code>(UI의 Default content에 해당하는 관례)입니다. Experience A Offer ID를 비우면 검색·선택 오퍼를 사용합니다(기본 콘텐츠 체크 시 제외).</div>
                 </div>
 
                 <div id="trafficXtSection" class="traffic-section" style="display:none;">
@@ -225,6 +231,10 @@
                                 <option value="live">live</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label for="activityEditPriority">Priority <span class="hint">(0–999)</span></label>
+                            <input type="number" id="activityEditPriority" class="form-control" min="0" max="999" step="1" placeholder="5">
+                        </div>
                         <div class="form-group" id="activityEditOptionsGroup">
                             <label>Variation Offer IDs</label>
                             <div id="activityEditOptionsList"></div>
@@ -285,11 +295,11 @@
         <!-- /tab-my-content -->
     </div>
 
-    <script src="js/utils.js?v=20260325"></script>
-    <script src="js/offers.js?v=20260325"></script>
-    <script src="js/activities.js?v=20260325"></script>
-    <script src="js/my-content.js?v=20260325"></script>
-    <script src="js/theme.js?v=20260325"></script>
-    <script src="js/app.js?v=20260325"></script>
+    <script src="js/utils.js?v=20260403"></script>
+    <script src="js/offers.js?v=20260403"></script>
+    <script src="js/activities.js?v=20260403c"></script>
+    <script src="js/my-content.js?v=20260403"></script>
+    <script src="js/theme.js?v=20260403"></script>
+    <script src="js/app.js?v=20260403"></script>
 </body>
 </html>

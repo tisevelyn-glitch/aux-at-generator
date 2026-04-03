@@ -67,6 +67,7 @@
         var id = a.id || a.activityId || '—';
         var name = (a.name != null ? a.name : '—');
         var state = (a.state != null ? a.state : (a.status != null ? a.status : '—'));
+        var pri = (a.priority != null && a.priority !== '') ? String(a.priority) : '—';
         var updated = a.updatedAt || a.modifiedAt || a.lastModified || '—';
         var via = a.createdVia || '—';
         var viaLabel = via === 'api' ? 'API 생성' : (via === 'ui' ? 'UI 생성' : via);
@@ -82,7 +83,7 @@
             '<span class="content-list-id">' + idCell + '</span>' +
             '<span class="content-list-name">' + escapeHtml(name) + '</span>' +
             '<span class="content-list-type">' + escapeHtml(typeLabel) + '</span>' +
-            '<span class="content-list-meta">' + escapeHtml(String(state)) + ' · ' + escapeHtml(String(updated).slice(0, 10)) + '</span>' +
+            '<span class="content-list-meta">' + escapeHtml(String(state)) + ' · P:' + escapeHtml(pri) + ' · ' + escapeHtml(String(updated).slice(0, 10)) + '</span>' +
             '<span class="content-list-via">' + escapeHtml(viaLabel) + '</span>' +
             '<span class="content-list-actions"><button type="button" class="btn-remove-from-mine" data-activity-id="' + escapeHtml(String(id)) + '" title="내 목록에서 제외">제외</button></span>' +
             '</div>';
@@ -115,7 +116,7 @@
         '<span class="content-list-id">ID</span>' +
         '<span class="content-list-name">Name</span>' +
         '<span class="content-list-type">Type</span>' +
-        '<span class="content-list-meta">State · Updated</span>' +
+        '<span class="content-list-meta">State · Pri · Updated</span>' +
         '<span class="content-list-via">생성 경로</span>' +
         '<span class="content-list-actions">동작</span>' +
         '</div>';
@@ -127,7 +128,8 @@
         var list = term
             ? lastActivities.filter(function (a) {
                 var name = (a.name != null ? String(a.name) : '');
-                return name.toLowerCase().indexOf(term) !== -1;
+                var idStr = String(a.id != null ? a.id : (a.activityId != null ? a.activityId : ''));
+                return name.toLowerCase().indexOf(term) !== -1 || idStr.toLowerCase().indexOf(term) !== -1;
             })
             : lastActivities;
         if (!myActivitiesList) return;
@@ -149,7 +151,10 @@
         '<span class="content-list-meta">Updated</span>' +
         '</div>';
 
-    function loadActivities() {
+    /**
+     * @param {string} [savedSummary] — 저장 직후 호출 시: 이 문구를 유지한 채 목록 갱신 결과와 함께 표시
+     */
+    function loadActivities(savedSummary) {
         showStatus('Loading Activities...', 'loading');
         showActivitiesStatus('Loading...', 'loading');
         if (myActivitiesList) myActivitiesList.innerHTML = '<p class="content-list-empty">로딩 중...</p>';
@@ -159,8 +164,13 @@
             if (r.ok && actRes.activities && Array.isArray(actRes.activities)) {
                 lastActivities = actRes.activities;
                 applyActivityFilter();
-                showActivitiesStatus('Activities: ' + lastActivities.length + '개 로드됨', 'success');
-                showStatus('Activities loaded.', 'success');
+                if (savedSummary && typeof savedSummary === 'string' && savedSummary.trim()) {
+                    showActivitiesStatus(savedSummary.trim() + ' — 목록 ' + lastActivities.length + '개 반영됨', 'success');
+                    showStatus('저장 후 목록을 갱신했습니다.', 'success');
+                } else {
+                    showActivitiesStatus('Activities: ' + lastActivities.length + '개 로드됨', 'success');
+                    showStatus('Activities loaded.', 'success');
+                }
             } else {
                 lastActivities = [];
                 var actErr = actRes.error || 'Failed to load activities.';
@@ -406,6 +416,11 @@
             var act = r.data;
             var stateSelect = document.getElementById('activityEditState');
             if (stateSelect) stateSelect.value = act.state || 'saved';
+            var priorityEl = document.getElementById('activityEditPriority');
+            if (priorityEl) {
+                var pr = act.priority;
+                priorityEl.value = (pr != null && pr !== '' && !isNaN(Number(pr))) ? String(Math.round(Number(pr))) : '5';
+            }
             var optionsList = document.getElementById('activityEditOptionsList');
             if (!optionsList) return;
             var options = act.options || [];
@@ -433,6 +448,10 @@
     function closeEditModal() {
         if (activityEditModal) activityEditModal.style.display = 'none';
     }
+    function formatActivitySaveApiError(data, httpStatus) {
+        if (!data || typeof data !== 'object') return 'HTTP ' + (httpStatus || '');
+        return data.error || data.message || (data.errors && data.errors[0] && data.errors[0].message) || ('HTTP ' + (httpStatus || ''));
+    }
     function saveEditModal() {
         var activityId = document.getElementById('activityEditId').value;
         if (!activityId) return;
@@ -452,18 +471,48 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ activityId: activityId, state: state })
         });
-        var optionsPromise = options.length > 0
+        var priorityInput = document.getElementById('activityEditPriority');
+        var priorityBody = {};
+        if (priorityInput && priorityInput.value.trim() !== '') {
+            var prNum = Number(priorityInput.value);
+            if (isNaN(prNum)) {
+                showActivitiesStatus('Priority는 0–999 숫자만 입력하세요.', 'error');
+                activityEditSaveBtn.disabled = false;
+                return;
+            }
+            priorityBody.priority = prNum;
+        }
+        var hasOptions = options.length > 0;
+        var hasPriority = Object.prototype.hasOwnProperty.call(priorityBody, 'priority');
+        var optionsPromise = (hasOptions || hasPriority)
             ? fetchJson(API_BASE + '/activities/' + encodeURIComponent(activityId) + '/options' + typeQs, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ options: options })
+                body: JSON.stringify(Object.assign({ options: options }, priorityBody))
             })
-            : Promise.resolve({ ok: true });
-        Promise.all([statePromise, optionsPromise]).then(function () {
-            showStatus('Saved.', 'success');
+            : Promise.resolve({ ok: true, skipped: true, data: {} });
+        Promise.all([statePromise, optionsPromise]).then(function (results) {
+            var stateR = results[0];
+            var optR = results[1];
+            var errs = [];
+            if (!stateR.ok) errs.push('State: ' + formatActivitySaveApiError(stateR.data, stateR.status));
+            if (!optR.skipped && !optR.ok) errs.push('Offer/Priority: ' + formatActivitySaveApiError(optR.data, optR.status));
+            if (errs.length) {
+                showActivitiesStatus('저장 실패 — ' + errs.join(' · '), 'error');
+                showStatus(errs.join(' · '), 'error');
+                return;
+            }
+            var detail = [];
+            if (optR.data && optR.data.priority != null && optR.data.priority !== '') {
+                detail.push('Priority 반영: ' + optR.data.priority);
+            } else if (!optR.skipped && hasPriority) {
+                detail.push('Priority 저장 요청 완료(응답에 priority 없음 — 목록의 P: 값 확인)');
+            }
+            var okMsg = '저장 완료' + (detail.length ? ' · ' + detail.join(' · ') : '');
             closeEditModal();
-            loadActivities();
+            loadActivities(okMsg);
         }).catch(function (err) {
+            showActivitiesStatus('Save failed: ' + (err.message || 'Request failed'), 'error');
             showStatus('Save failed: ' + (err.message || 'Request failed'), 'error');
         }).then(function () {
             activityEditSaveBtn.disabled = false;

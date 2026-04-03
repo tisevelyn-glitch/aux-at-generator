@@ -4,11 +4,134 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const router = express.Router();
-const { config, WORKSPACES, getToken, getOfferById, getActivityChangelog, changelogHasAuthor } = require('../lib/adobe');
+const { config, WORKSPACES, getToken, getOfferById, getOfferByIdContentOrJson, getActivityChangelog, changelogHasAuthor } = require('../lib/adobe');
 const { addCreatedOffer, listCreatedOffersForApi, getCreatedOfferIdsForApi, getCreatedOfferMetaById, removeFromCreatedOffers } = require('../lib/created-offers-store');
 
 var CONCURRENCY = 5;
-var MAX_ACTIVITIES_FOR_CHANGELOG = 80;
+var MAX_ACTIVITIES_FOR_CHANGELOG = 250;
+
+/** Adobe offer 본문의 workspace → 워크스페이스 ID 문자열 (없으면 null) */
+function workspaceIdFromOfferPayload(offerPayload, depth) {
+    depth = depth || 0;
+    if (!offerPayload || depth > 4) return null;
+    if (offerPayload._meta && offerPayload._meta.workspaceId != null) {
+        return String(offerPayload._meta.workspaceId).trim();
+    }
+    if (offerPayload.workspaceId != null && typeof offerPayload.workspaceId !== 'object') {
+        return String(offerPayload.workspaceId).trim();
+    }
+    if (offerPayload.workspace == null) {
+        if (offerPayload.data && typeof offerPayload.data === 'object') {
+            var nested = workspaceIdFromOfferPayload(offerPayload.data, depth + 1);
+            if (nested) return nested;
+        }
+        return null;
+    }
+    var w = offerPayload.workspace;
+    if (typeof w === 'string' || typeof w === 'number') {
+        var s = String(w).trim();
+        return s || null;
+    }
+    if (typeof w === 'object' && !Array.isArray(w)) {
+        if (w.id != null) return String(w.id).trim();
+        if (w.workspaceId != null) return String(w.workspaceId).trim();
+        if (w.name != null && WORKSPACES && WORKSPACES.length) {
+            var nm = String(w.name).trim();
+            for (var i = 0; i < WORKSPACES.length; i++) {
+                if (String(WORKSPACES[i].name) === nm) return String(WORKSPACES[i].id).trim();
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * 본문에 workspace가 없거나 요청 WS와 불일치할 때, 등록된 모든 WS로 단건 조회해 실제 소속 WS ID를 찾음
+ */
+async function resolveFoundWorkspaceIdForOffer(tenant, accessToken, offerId, primaryWsId, primaryOk, primaryData) {
+    if (primaryOk && primaryData) {
+        var w0 = workspaceIdFromOfferPayload(primaryData);
+        if (w0) return w0;
+    }
+    for (var j = 0; j < WORKSPACES.length; j++) {
+        var wsId = WORKSPACES[j].id;
+        if (primaryOk && String(wsId) === String(primaryWsId)) continue;
+        var r = await getOfferByIdContentOrJson(tenant, accessToken, offerId, wsId);
+        if (r.ok && r.data) {
+            var fa = workspaceIdFromOfferPayload(r.data);
+            if (fa) return fa;
+        }
+    }
+    return String(primaryWsId);
+}
+
+/** Adobe 단건 응답 → UI에 쓸 메타 필드 (Target UI와 유사) */
+function normalizeActorField(actor) {
+    if (actor == null || actor === '') return '';
+    if (typeof actor === 'string' || typeof actor === 'number') return String(actor).trim();
+    if (typeof actor === 'object') {
+        return String(
+            actor.name || actor.displayName || actor.fullName || actor.email || actor.imsUserId || actor.userId || ''
+        ).trim();
+    }
+    return '';
+}
+
+function coerceIsoLike(val) {
+    if (val == null) return undefined;
+    if (typeof val === 'string' || typeof val === 'number') return val;
+    if (typeof val === 'object' && val !== null) {
+        return val.date || val.dateTime || val.value || val.time || undefined;
+    }
+    return undefined;
+}
+
+/** Adobe v2 본문: data 중첩·엔드포인트별 필드명 차이 흡수 */
+function flattenOfferApiPayload(raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    var o = Object.assign({}, raw);
+    if (raw.data && typeof raw.data === 'object') {
+        o = Object.assign({}, raw.data, raw);
+    }
+    return o;
+}
+
+function pickOfferDetailsForClient(raw, fetchMeta) {
+    fetchMeta = fetchMeta || {};
+    var f = flattenOfferApiPayload(raw);
+    var modifiedAt = f.modifiedAt || f.modified || f.updatedAt || f.lastModified || f.lastModifiedAt || f.lastModifiedDate;
+    modifiedAt = coerceIsoLike(modifiedAt) || modifiedAt;
+    if (typeof modifiedAt === 'object') modifiedAt = undefined;
+    var modifiedBy = normalizeActorField(f.modifiedBy || f.lastModifiedBy || f.lastModifiedByUser);
+    if (!modifiedBy) modifiedBy = normalizeActorField(f.modifiedByImsUserId);
+    var createdAt = f.createdAt || f.created;
+    createdAt = coerceIsoLike(createdAt) || createdAt;
+    if (typeof createdAt === 'object') createdAt = undefined;
+    var createdBy = normalizeActorField(f.createdBy || f.author);
+    var typeVal = f.type;
+    if (typeVal == null || typeVal === '') typeVal = f.contentType;
+    if (typeVal == null || typeVal === '') typeVal = f.offerType;
+    if ((typeVal == null || typeVal === '') && f.jsonContent != null) typeVal = 'json';
+    if ((typeVal == null || typeVal === '') && (f.content != null || f.html != null)) typeVal = 'html';
+    if ((typeVal == null || typeVal === '') && fetchMeta.endpoint === 'json') typeVal = 'json';
+    if ((typeVal == null || typeVal === '') && fetchMeta.endpoint === 'content') typeVal = 'html';
+    return {
+        id: f.id,
+        name: f.name,
+        content: f.content,
+        workspace: f.workspace,
+        type: typeVal,
+        contentType: f.contentType != null ? f.contentType : typeVal,
+        offerType: f.offerType != null ? f.offerType : typeVal,
+        modifiedAt: modifiedAt,
+        modifiedBy: modifiedBy || undefined,
+        createdAt: createdAt,
+        createdBy: createdBy || undefined,
+        description: f.description,
+        status: f.status,
+        state: f.state
+    };
+}
 
 async function fetchActivitiesByWorkspaceTyped(tenant, accessToken, workspaceId) {
     var headers = {
@@ -46,7 +169,7 @@ async function filterActivitiesByCreator(activities, accessToken, tenant) {
         var batch = list.slice(i, i + CONCURRENCY);
         var changelogs = await Promise.all(batch.map(function (a) {
             var id = a.id || a.activityId;
-            return getActivityChangelog(tenant, accessToken, id).then(function (cl) {
+            return getActivityChangelog(tenant, accessToken, id, a.workspaceId).then(function (cl) {
                 return { activity: a, changelog: cl };
             });
         }));
@@ -280,14 +403,18 @@ router.get('/:id', async function (req, res) {
         var tenant = config.tenant;
         var workspaceIdStr = workspaceId || WORKSPACES[0].id;
 
-        var result = await getOfferById(tenant, accessToken, offerId, workspaceIdStr);
-        console.log('[Offer GET] ok=%s status=%s', result.ok, result.status);
+        var result = await getOfferByIdContentOrJson(tenant, accessToken, offerId, workspaceIdStr);
+        console.log('[Offer GET] ok=%s status=%s endpoint=%s', result.ok, result.status, result._endpoint || '');
         if (!result.ok) console.log('[Offer GET] body:', JSON.stringify(result.data).slice(0, 300));
 
         if (result.ok) {
+            var foundId = await resolveFoundWorkspaceIdForOffer(tenant, accessToken, offerId, workspaceIdStr, true, result.data);
+            var mismatch = workspaceId && String(foundId) !== String(workspaceIdStr);
             return res.json({
-                offer: { id: result.data.id, name: result.data.name, content: result.data.content, workspace: result.data.workspace },
-                foundInWorkspace: workspaceIdStr
+                offer: pickOfferDetailsForClient(result.data, { endpoint: result._endpoint }),
+                foundInWorkspace: foundId,
+                requestedWorkspaceId: workspaceId || undefined,
+                workspaceMismatch: mismatch ? true : undefined
             });
         }
 
@@ -295,11 +422,15 @@ router.get('/:id', async function (req, res) {
             for (var i = 0; i < WORKSPACES.length; i++) {
                 var wsId = WORKSPACES[i].id;
                 if (String(wsId) === String(workspaceIdStr)) continue;
-                var next = await getOfferById(tenant, accessToken, offerId, wsId);
+                var next = await getOfferByIdContentOrJson(tenant, accessToken, offerId, wsId);
                 if (next.ok) {
+                    var foundId2 = await resolveFoundWorkspaceIdForOffer(tenant, accessToken, offerId, wsId, true, next.data);
+                    var mismatch2 = workspaceId && String(foundId2) !== String(workspaceIdStr);
                     return res.json({
-                        offer: { id: next.data.id, name: next.data.name, content: next.data.content, workspace: next.data.workspace },
-                        foundInWorkspace: wsId
+                        offer: pickOfferDetailsForClient(next.data, { endpoint: next._endpoint }),
+                        foundInWorkspace: foundId2,
+                        requestedWorkspaceId: workspaceId || undefined,
+                        workspaceMismatch: mismatch2 ? true : undefined
                     });
                 }
             }
@@ -395,7 +526,7 @@ router.put('/:id', async function (req, res) {
 
         // allow partial update: if missing name/content, fill from current offer
         if (!name || !content) {
-            var current = await getOfferById(tenant, accessToken, offerId, workspaceId);
+            var current = await getOfferByIdContentOrJson(tenant, accessToken, offerId, workspaceId);
             if (!current.ok || !current.data) {
                 return res.status(current.status || 500).json({
                     error: 'Failed to load current offer before update.',
