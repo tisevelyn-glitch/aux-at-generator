@@ -4,7 +4,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const router = express.Router();
-const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, getOfferByIdContentOrJson, fetchPropertiesForWorkspace, getActivityChangelog, changelogHasAuthor } = require('../lib/adobe');
+const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, getOfferByIdContentOrJson, fetchPropertiesForWorkspace, getActivityChangelog, changelogHasAuthor, resolveWorkspacesFromQuery } = require('../lib/adobe');
 const { addCreated, getCreatedIdsForApi, removeFromCreated } = require('../lib/created-activities-store');
 
 var CONCURRENCY = 5;
@@ -267,9 +267,9 @@ async function fetchActivityByIdForList(tenant, accessToken, activityIdStr) {
 
 /**
  * created-activities에만 있고 워크스페이스 목록 합집합에 없는 ID를 단건 조회로 추가.
- * @param {string} [onlyWorkspaceId] — 지정 시 해당 워크스페이스에 속한 항목만 추가
+ * @param {string|Set|null} [workspaceScope] — 문자열이면 해당 WS만, Set이면 id 집합에 속한 WS만, null이면 제한 없음
  */
-async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, onlyWorkspaceId) {
+async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, workspaceScope) {
     if (!createdIds || createdIds.size === 0) return all;
     var seen = new Set();
     all.forEach(function (a) {
@@ -285,7 +285,13 @@ async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, creat
             continue;
         }
         var w = activityWorkspaceFieldsFromRow(row);
-        if (onlyWorkspaceId != null && String(onlyWorkspaceId) !== String(w.workspaceId || '')) continue;
+        if (workspaceScope != null) {
+            if (workspaceScope instanceof Set) {
+                if (!workspaceScope.has(String(w.workspaceId || ''))) continue;
+            } else {
+                if (String(workspaceScope) !== String(w.workspaceId || '')) continue;
+            }
+        }
         extra.push(Object.assign({}, row, {
             workspaceId: w.workspaceId,
             workspaceName: w.workspaceName,
@@ -296,56 +302,86 @@ async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, creat
     return extra.length ? all.concat(extra) : all;
 }
 
-// GET /api/activities/list — workspaceId 없으면 전체 워크스페이스 조회(각 항목에 workspace 정보 포함)
+/** 선택된 워크스페이스 집합에 속한 행만 유지 (필터/병합 단계에서 섞인 항목 제거) */
+function filterActivitiesByWorkspaceAllowlist(activities, allowedWsSet) {
+    if (!allowedWsSet || !(allowedWsSet instanceof Set) || allowedWsSet.size === 0) {
+        return activities;
+    }
+    return activities.filter(function (a) {
+        return allowedWsSet.has(String(a.workspaceId || '').trim());
+    });
+}
+
+// GET /api/activities/list — 반드시 workspaceIds(쉼표) 또는 workspaceId 단건으로 범위 지정 (미지정 시 전체 조회로 잘못 나가지 않게 400).
 router.get('/list', async function (req, res) {
     try {
-        var workspaceId = String(req.query.workspaceId || '').trim();
         var tenant = config.tenant;
         if (!tenant || !config.clientId) {
             return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
         }
         var accessToken = await getToken();
+        var wsRes = resolveWorkspacesFromQuery(req.query, WORKSPACES);
+        if (wsRes.mode === 'invalid') {
+            return res.status(400).json({ error: '유효한 workspaceIds가 없습니다.' });
+        }
+        var workspaceId = String(req.query.workspaceId || '').trim();
 
-        if (workspaceId) {
-            var activities = await fetchActivitiesByWorkspace(tenant, accessToken, workspaceId);
+        function runListForWorkspaces(wsLoop, hydrateScope) {
+            return (async function () {
+                var all = [];
+                var j;
+                for (j = 0; j < wsLoop.length; j++) {
+                    var wsId = wsLoop[j].id;
+                    var wsName = wsLoop[j].name;
+                    var list = await fetchActivitiesByWorkspace(tenant, accessToken, wsId);
+                    list.forEach(function (a) {
+                        all.push(Object.assign({}, a, { workspaceId: wsId, workspaceName: wsName }));
+                    });
+                }
+                var createdIds = getCreatedIdsForApi(tenant, config.clientId);
+                all = await hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, hydrateScope);
+                if (config.creatorEmail || config.creatorImsUserId) {
+                    all = await filterActivitiesByCreator(all, accessToken, tenant, createdIds);
+                } else {
+                    all = all.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+                    all = all.map(function (a) {
+                        return Object.assign({}, a, { createdVia: 'api' });
+                    });
+                }
+                return all;
+            })();
+        }
+
+        if (wsRes.mode === 'subset') {
+            var activitiesSubset = await runListForWorkspaces(wsRes.workspaces, wsRes.workspaceIdSet);
+            activitiesSubset = filterActivitiesByWorkspaceAllowlist(activitiesSubset, wsRes.workspaceIdSet);
+            return res.json({ activities: activitiesSubset });
+        }
+
+        if (wsRes.mode === 'omit' && workspaceId) {
             var ws = WORKSPACES.find(function (w) { return String(w.id) === String(workspaceId); });
             var workspaceName = ws ? ws.name : workspaceId;
+            var activities = await fetchActivitiesByWorkspace(tenant, accessToken, workspaceId);
             activities = activities.map(function (a) {
                 return Object.assign({}, a, { workspaceId: workspaceId, workspaceName: workspaceName });
             });
-            var createdIds = getCreatedIdsForApi(tenant, config.clientId);
-            activities = await hydrateCreatedActivitiesNotInList(activities, tenant, accessToken, createdIds, workspaceId);
+            var createdIdsOne = getCreatedIdsForApi(tenant, config.clientId);
+            activities = await hydrateCreatedActivitiesNotInList(activities, tenant, accessToken, createdIdsOne, workspaceId);
             if (config.creatorEmail || config.creatorImsUserId) {
-                activities = await filterActivitiesByCreator(activities, accessToken, tenant, createdIds);
+                activities = await filterActivitiesByCreator(activities, accessToken, tenant, createdIdsOne);
             } else {
-                activities = activities.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
+                activities = activities.filter(function (a) { return createdIdsOne.has(String(a.id || a.activityId)); });
                 activities = activities.map(function (a) {
                     return Object.assign({}, a, { createdVia: 'api' });
                 });
             }
+            activities = filterActivitiesByWorkspaceAllowlist(activities, new Set([String(workspaceId)]));
             return res.json({ activities: activities });
         }
 
-        var all = [];
-        for (var i = 0; i < WORKSPACES.length; i++) {
-            var wsId = WORKSPACES[i].id;
-            var wsName = WORKSPACES[i].name;
-            var list = await fetchActivitiesByWorkspace(tenant, accessToken, wsId);
-            list.forEach(function (a) {
-                all.push(Object.assign({}, a, { workspaceId: wsId, workspaceName: wsName }));
-            });
-        }
-        var createdIds = getCreatedIdsForApi(tenant, config.clientId);
-        all = await hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, null);
-        if (config.creatorEmail || config.creatorImsUserId) {
-            all = await filterActivitiesByCreator(all, accessToken, tenant, createdIds);
-        } else {
-            all = all.filter(function (a) { return createdIds.has(String(a.id || a.activityId)); });
-            all = all.map(function (a) {
-                return Object.assign({}, a, { createdVia: 'api' });
-            });
-        }
-        res.json({ activities: all });
+        return res.status(400).json({
+            error: 'Pass workspaceIds (comma-separated workspace IDs) or workspaceId (single). Listing all workspaces is not allowed on this endpoint.'
+        });
     } catch (error) {
         console.error('[Activities list] catch:', error);
         res.status(500).json({ error: error.message });
@@ -363,6 +399,8 @@ async function filterActivitiesByCreator(activities, accessToken, tenant, create
     activities.forEach(function (a) {
         var id = String(a.id || a.activityId);
         if (!id) return;
+        // 동일 ID가 여러 WS 목록에 중복 등장 시 마지막 행만 남기면 workspaceId가 엉뚱한 WS로 덮일 수 있음 → 첫 행 유지
+        if (byId[id] != null) return;
         byId[id] = a;
     });
     var result = [];

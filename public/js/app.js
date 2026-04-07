@@ -29,8 +29,21 @@
                 });
                 wsCheckboxesEl.innerHTML = html;
             }
+            var myContentWsEl = document.getElementById('myContentWorkspaceCheckboxes');
+            if (myContentWsEl) {
+                var htmlMc = '';
+                workspacesList.forEach(function (ws) {
+                    htmlMc += '<label class="workspace-checkbox">' +
+                        '<input type="checkbox" class="my-content-ws-cb" value="' + escapeHtml(ws.id) + '">' +
+                        '<span class="workspace-name">' + escapeHtml(ws.name) + '</span>' +
+                        '</label>';
+                });
+                myContentWsEl.innerHTML = htmlMc;
+            }
         } catch (e) {
             if (wsCheckboxesEl) wsCheckboxesEl.innerHTML = '<div class="workspace-checkbox-error">Failed to load workspaces</div>';
+            var myContentWsErr = document.getElementById('myContentWorkspaceCheckboxes');
+            if (myContentWsErr) myContentWsErr.innerHTML = '<div class="workspace-checkbox-error">Failed to load workspaces</div>';
             console.error('loadWorkspaces:', e);
         }
     }
@@ -43,6 +56,13 @@
                 var checked = !!e.target.checked;
                 var cbs = document.querySelectorAll('.workspace-cb');
                 cbs.forEach(function (cb) { cb.checked = checked; });
+            });
+        }
+        var myContentWsSelectAll = document.getElementById('myContentWorkspaceSelectAll');
+        if (myContentWsSelectAll) {
+            myContentWsSelectAll.addEventListener('change', function (e) {
+                var checked = !!e.target.checked;
+                document.querySelectorAll('.my-content-ws-cb').forEach(function (cb) { cb.checked = checked; });
             });
         }
         try {

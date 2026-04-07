@@ -514,9 +514,74 @@ textarea.form-control {
     border-color: hsl(var(--primary));
 }
 
+/* ── My Content 서브탭 (Activities / Offers) ─────────────────── */
+.my-content-subtabs {
+    display: flex;
+    gap: 4px;
+    margin-top: var(--sp-2);
+    margin-bottom: 0;
+    padding: 0 2px;
+}
+
+.my-content-subtab {
+    padding: 8px 18px;
+    border: 1px solid hsl(var(--border));
+    border-bottom: none;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    background: hsl(var(--jss-surface));
+    color: hsl(var(--foreground));
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.my-content-subtab:hover {
+    background: hsl(var(--jss-surface-hover));
+}
+
+.my-content-subtab.active {
+    background: hsl(var(--primary));
+    color: white;
+    border-color: hsl(var(--primary));
+}
+
+.my-content-subpanel {
+    margin-top: 0;
+}
+
+.my-content-subpanel.is-hidden {
+    display: none !important;
+}
+
+.dark .my-content-subtab {
+    border-color: hsl(var(--border));
+}
+
+/* My Content — API 범위 안내 (카드 타이틀보다 작은 디스클레이머) */
+.hint-disclaimer {
+    font-size: 11px;
+    line-height: 1.45;
+    color: hsl(var(--muted-foreground));
+    margin-top: 6px;
+    margin-bottom: 0;
+    font-weight: 400;
+    max-width: 52rem;
+}
+
 /* ── My Content 리스트 ───────────────────────────────────────── */
 .content-list {
     min-height: 60px;
+}
+
+.content-list.content-list-with-ws,
+.content-list.content-list-with-ws-offers {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-md);
+    background: hsl(var(--card));
 }
 
 .content-list-item {
@@ -594,13 +659,84 @@ textarea.form-control {
     border-bottom: none;
 }
 
+/* Activities: 8 cols — minmax로 줄바꿈·겹침 완화, 좁은 화면은 가로 스크롤 */
 .content-list-with-ws .content-list-item-ws {
-    grid-template-columns: 36px 120px 90px 1fr 56px auto 72px 72px;
+    grid-template-columns:
+        32px
+        minmax(5.25rem, 0.75fr)
+        minmax(4.5rem, 0.55fr)
+        minmax(8rem, 1.35fr)
+        2.75rem
+        minmax(9.5rem, 1fr)
+        minmax(3.25rem, 0.4fr)
+        4.5rem;
+    column-gap: 10px;
+    align-items: center;
+    min-width: min(100%, 720px);
 }
 
-/* Offers 리스트는 컬럼이 적어서 별도 그리드 사용 (겹침 방지) */
+.content-list-with-ws .content-list-item-ws > span {
+    min-width: 0;
+}
+
+.content-list-with-ws .content-list-ws,
+.content-list-with-ws .content-list-name,
+.content-list-with-ws .content-list-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.content-list-with-ws .content-list-type {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.content-list-with-ws .content-list-id {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.content-list-with-ws .content-list-via {
+    white-space: nowrap;
+    text-align: center;
+}
+
+.content-list-with-ws .content-list-actions {
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+/* Offers 리스트 — 5 cols */
 .content-list-with-ws-offers .content-list-item-ws {
-    grid-template-columns: 36px 120px 90px 1fr auto;
+    grid-template-columns:
+        32px
+        minmax(5.25rem, 0.8fr)
+        minmax(4.5rem, 0.5fr)
+        minmax(8rem, 1.5fr)
+        minmax(6.5rem, 0.75fr);
+    column-gap: 10px;
+    align-items: center;
+    min-width: min(100%, 560px);
+}
+
+.content-list-with-ws-offers .content-list-item-ws > span {
+    min-width: 0;
+}
+
+.content-list-with-ws-offers .content-list-ws,
+.content-list-with-ws-offers .content-list-name,
+.content-list-with-ws-offers .content-list-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.content-list-with-ws-offers .content-list-id {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .content-list-type {

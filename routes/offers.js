@@ -4,11 +4,12 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const router = express.Router();
-const { config, WORKSPACES, getToken, getOfferById, getOfferByIdContentOrJson, getActivityChangelog, changelogHasAuthor } = require('../lib/adobe');
+const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, getOfferById, getOfferByIdContentOrJson, getActivityChangelog, changelogHasAuthor, resolveWorkspacesFromQuery } = require('../lib/adobe');
 const { addCreatedOffer, listCreatedOffersForApi, getCreatedOfferIdsForApi, getCreatedOfferMetaById, removeFromCreatedOffers } = require('../lib/created-offers-store');
 
 var CONCURRENCY = 5;
 var MAX_ACTIVITIES_FOR_CHANGELOG = 250;
+var MAX_OFFERS_FOR_CREATOR_CHECK = 250;
 
 /** Adobe offer 본문의 workspace → 워크스페이스 ID 문자열 (없으면 null) */
 function workspaceIdFromOfferPayload(offerPayload, depth) {
@@ -133,6 +134,44 @@ function pickOfferDetailsForClient(raw, fetchMeta) {
     };
 }
 
+function creatorStringMatches(actorString, creator) {
+    if (!actorString || !creator) return false;
+    var a = String(actorString).trim().toLowerCase();
+    var c = String(creator).trim().toLowerCase();
+    if (!a || !c) return false;
+    return a === c || a.indexOf(c) !== -1 || c.indexOf(a) !== -1;
+}
+
+async function filterOffersByCreator(offers, accessToken, tenant) {
+    var creator = (config.creatorImsUserId || config.creatorEmail || '').trim();
+    if (!creator || !offers || offers.length === 0) return offers;
+
+    var list = offers.slice(0, MAX_OFFERS_FOR_CREATOR_CHECK);
+    var out = [];
+    for (var i = 0; i < list.length; i += CONCURRENCY) {
+        var batch = list.slice(i, i + CONCURRENCY);
+        var details = await Promise.all(batch.map(function (o) {
+            var oid = String(o.id || o.offerId || '').trim();
+            var wsId = String(o.workspaceId || '').trim();
+            if (!oid || !wsId) return Promise.resolve(null);
+            return getOfferByIdContentOrJson(tenant, accessToken, oid, wsId).then(function (r) {
+                return r && r.ok && r.data ? { offer: o, detail: r } : null;
+            }).catch(function () { return null; });
+        }));
+        details.forEach(function (item) {
+            if (!item) return;
+            var picked = pickOfferDetailsForClient(item.detail.data, { endpoint: item.detail._endpoint });
+            if (creatorStringMatches(picked.createdBy, creator) || creatorStringMatches(picked.modifiedBy, creator)) {
+                out.push(item.offer);
+            }
+        });
+    }
+    if (offers.length > MAX_OFFERS_FOR_CREATOR_CHECK) {
+        console.log('[Offers list] Filtered by creator: checked only first ' + MAX_OFFERS_FOR_CREATOR_CHECK + ' of ' + offers.length);
+    }
+    return out;
+}
+
 async function fetchActivitiesByWorkspaceTyped(tenant, accessToken, workspaceId) {
     var headers = {
         'Authorization': 'Bearer ' + accessToken,
@@ -181,6 +220,65 @@ async function filterActivitiesByCreator(activities, accessToken, tenant) {
     return result;
 }
 
+function filterOffersByWorkspaceAllowlist(offers, allowedWsSet) {
+    if (!allowedWsSet || !(allowedWsSet instanceof Set) || allowedWsSet.size === 0) return offers;
+    return offers.filter(function (o) {
+        return allowedWsSet.has(String(o.workspaceId || '').trim());
+    });
+}
+
+/**
+ * created-offers store 항목을 Adobe에서 단건 조회 (앱 생성분만 목록).
+ * subset: 스토어의 workspaceId가 틀리거나 HTML/json 엔드포인트 차이로 한 번에 안 잡히는 경우, 선택한 WS 순서로 재시도.
+ */
+async function fetchOneCreatedOfferForList(tenant, accessToken, entry, wsRes, workspaceQuery, subsetFallbackWs) {
+    var idStr = String(entry.id);
+    var stored = String(entry.workspaceId || '').trim();
+
+    if (wsRes.mode === 'subset') {
+        var selectedSet = wsRes.workspaceIdSet;
+        var tryOrder = [];
+        var seen = new Set();
+        function pushWs(wid) {
+            var s = String(wid || '').trim();
+            if (!s || !selectedSet.has(s) || seen.has(s)) return;
+            seen.add(s);
+            tryOrder.push(s);
+        }
+        if (stored) {
+            if (!selectedSet.has(stored)) {
+                return { ok: false, status: 404, data: null, _meta: entry };
+            }
+            pushWs(stored);
+        }
+        for (var i = 0; i < wsRes.workspaces.length; i++) {
+            pushWs(wsRes.workspaces[i].id);
+        }
+        if (tryOrder.length === 0) {
+            return { ok: false, status: 400, data: null, _meta: entry };
+        }
+        for (var t = 0; t < tryOrder.length; t++) {
+            var r = await getOfferByIdContentOrJson(tenant, accessToken, idStr, tryOrder[t]);
+            if (r.ok && r.data) {
+                var fromPayload = workspaceIdFromOfferPayload(r.data);
+                var resolved = String(fromPayload || tryOrder[t] || '').trim();
+                if (selectedSet.has(resolved)) {
+                    var meta = Object.assign({}, entry, { workspaceId: resolved });
+                    return { ok: true, status: r.status, data: r.data, _meta: meta };
+                }
+            }
+        }
+        return { ok: false, status: 404, data: null, _meta: entry };
+    }
+
+    var wsId = stored;
+    if (!wsId) wsId = String(workspaceQuery || '').trim();
+    if (!wsId) wsId = String(subsetFallbackWs || '').trim();
+    if (!wsId) wsId = String(DEFAULT_WORKSPACE_ID);
+    var r2 = await getOfferByIdContentOrJson(tenant, accessToken, idStr, wsId);
+    return Object.assign({}, r2, { _meta: entry });
+}
+
 async function getActivityDetail(tenant, accessToken, activityId, activityType) {
     var typePath = (String(activityType || 'ab').toLowerCase() === 'xt') ? 'xt' : 'ab';
     var url = 'https://mc.adobe.io/' + tenant + '/target/activities/' + typePath + '/' + encodeURIComponent(activityId);
@@ -210,36 +308,20 @@ router.get('/list', async function (req, res) {
             return res.status(400).json({ error: 'Tenant and ADOBE_CLIENT_ID required.' });
         }
 
-        // default mode: "이 앱이 만든 offer"는 store를 source of truth로 삼고 단건 조회로 리스트 구성
-        // - /target/offers 는 content offer가 바로 안 잡히는 케이스가 있어 누락될 수 있음
-        // - all=1 또는 mode 지정 시에는 기존 방식(/target/offers listing) 유지
-        if (!allMode && !mode) {
-            var entries = listCreatedOffersForApi(tenant, config.clientId);
-            if (workspaceId) {
-                entries = entries.filter(function (e) { return String(e.workspaceId || '') === String(workspaceId); });
-            }
-            if (entries.length === 0) return res.json({ offers: [] });
-
-            var offers = [];
-            for (var i0 = 0; i0 < entries.length; i0 += CONCURRENCY) {
-                var batch0 = entries.slice(i0, i0 + CONCURRENCY);
-                var fetched = await Promise.all(batch0.map(function (e) {
-                    var wsId = e.workspaceId || '';
-                    if (!wsId) return Promise.resolve({ ok: false, status: 400, data: null, _meta: e });
-                    return getOfferById(tenant, accessToken, e.id, wsId).then(function (r) {
-                        return Object.assign({}, r, { _meta: e });
-                    });
-                }));
-                fetched.forEach(function (r) {
-                    if (!r.ok || !r.data) return;
-                    var wsId = r._meta.workspaceId || '';
-                    var ws = WORKSPACES.find(function (w) { return String(w.id) === String(wsId); });
-                    var wsName = ws ? ws.name : wsId;
-                    offers.push(Object.assign({}, r.data, { workspaceId: wsId, workspaceName: wsName }));
-                });
-            }
-            return res.json({ offers: offers });
+        var wsRes = resolveWorkspacesFromQuery(req.query, WORKSPACES);
+        if (wsRes.mode === 'invalid') {
+            return res.status(400).json({ error: '유효한 workspaceIds가 없습니다.' });
         }
+        function getOffersWsLoop() {
+            if (wsRes.mode === 'subset') return wsRes.workspaces;
+            if (workspaceId) {
+                var wf = WORKSPACES.find(function (w) { return String(w.id) === String(workspaceId); });
+                return wf ? [wf] : [{ id: workspaceId, name: workspaceId }];
+            }
+            return WORKSPACES;
+        }
+
+        // NOTE: Offers 목록은 Activities와 동일하게 "선택한 WS의 전체 목록을 가져온 뒤 → 내 것만 필터" 흐름을 기본으로 사용한다.
 
         // mode=usedByCreator: "내가 만든 Activity들에서 사용된 Offer" 목록 생성
         if (mode === 'usedByCreator') {
@@ -249,9 +331,10 @@ router.get('/list', async function (req, res) {
             }
             // 1) creator activity IDs 수집
             var activitiesAll = [];
-            for (var w = 0; w < WORKSPACES.length; w++) {
-                var wsId0 = WORKSPACES[w].id;
-                var wsName0 = WORKSPACES[w].name;
+            var wsLoopAct = getOffersWsLoop();
+            for (var w = 0; w < wsLoopAct.length; w++) {
+                var wsId0 = wsLoopAct[w].id;
+                var wsName0 = wsLoopAct[w].name;
                 var typed = await fetchActivitiesByWorkspaceTyped(tenant, accessToken, wsId0);
                 typed = typed.map(function (a) { return Object.assign({}, a, { workspaceId: wsId0, workspaceName: wsName0 }); });
                 activitiesAll = activitiesAll.concat(typed);
@@ -295,9 +378,10 @@ router.get('/list', async function (req, res) {
 
             // 3) offers 목록에서 위 offerIds만 필터 (이 단계는 name/type/modifiedAt 붙이기용)
             var offersAll = [];
-            for (var w2 = 0; w2 < WORKSPACES.length; w2++) {
-                var wsId = WORKSPACES[w2].id;
-                var wsName = WORKSPACES[w2].name;
+            var wsLoopOff = getOffersWsLoop();
+            for (var w2 = 0; w2 < wsLoopOff.length; w2++) {
+                var wsId = wsLoopOff[w2].id;
+                var wsName = wsLoopOff[w2].name;
                 var url = 'https://mc.adobe.io/' + tenant + '/target/offers?workspace=' + encodeURIComponent(wsId);
                 var r = await fetch(url, {
                     method: 'GET',
@@ -319,6 +403,9 @@ router.get('/list', async function (req, res) {
             }
             var setWanted = new Set(offerIdsWanted);
             var filtered = offersAll.filter(function (o) { return setWanted.has(String(o.id || o.offerId)); });
+            if (wsRes.mode === 'subset') {
+                filtered = filterOffersByWorkspaceAllowlist(filtered, wsRes.workspaceIdSet);
+            }
             filtered = filtered.map(function (o) {
                 var oid = String(o.id || o.offerId);
                 return Object.assign({}, o, { usedBy: offerToSources[oid] ? offerToSources[oid].sources : [] });
@@ -326,40 +413,20 @@ router.get('/list', async function (req, res) {
             return res.json({ offers: filtered, meta: { mode: mode, creatorActivities: creatorActivityInfos.length, uniqueOfferIds: offerIdsWanted.length } });
         }
 
-        var createdIds = getCreatedOfferIdsForApi(tenant, config.clientId);
-
-        if (workspaceId) {
-            // NOTE: /target/offers/content 은 GET이 405로 막힐 수 있어 목록은 /target/offers 를 사용
-            var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/offers?workspace=' + encodeURIComponent(workspaceId);
-            var response = await fetch(apiUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': 'Bearer ' + accessToken,
-                    'X-Api-Key': config.clientId,
-                    'X-Admin-Workspace-Id': workspaceId,
-                    'Accept': 'application/vnd.adobe.target.v1+json'
-                }
-            });
-            var data = await response.json();
-            if (!response.ok) {
-                return res.status(response.status).json({ error: data.message || data.error || 'Failed to list offers' });
-            }
-            var offers = Array.isArray(data) ? data : (data.offers || data.content || []);
-            var ws = WORKSPACES.find(function (w) { return String(w.id) === String(workspaceId); });
-            var workspaceName = ws ? ws.name : workspaceId;
-            offers = offers.map(function (o) {
-                return Object.assign({}, o, { workspaceId: workspaceId, workspaceName: workspaceName });
-            });
-            if (!allMode) {
-                offers = offers.filter(function (o) { return createdIds.has(String(o.id || o.offerId)); });
-            }
-            return res.json({ offers: offers });
+        // 기본(Activities와 동일한 컨셉): 선택한 워크스페이스의 전체 Offer 목록을 가져온 뒤 "내 것"만 필터한다.
+        // - creator 설정 있으면(권장): createdBy/modifiedBy 기반으로 판별(단건 조회 필요)
+        // - creator 설정 없으면: created-offers-store(이 앱이 만든 ID) 기준으로만 남김
+        if (wsRes.mode !== 'subset' && !workspaceId) {
+            return res.status(400).json({ error: 'Pass workspaceIds (comma-separated workspace IDs) or workspaceId (single).' });
         }
 
+        var createdIds = getCreatedOfferIdsForApi(tenant, config.clientId);
+
+        var wsLoopOffers = getOffersWsLoop();
         var all = [];
-        for (var i = 0; i < WORKSPACES.length; i++) {
-            var wsId = WORKSPACES[i].id;
-            var wsName = WORKSPACES[i].name;
+        for (var i = 0; i < wsLoopOffers.length; i++) {
+            var wsId = wsLoopOffers[i].id;
+            var wsName = wsLoopOffers[i].name;
             // NOTE: 목록은 /target/offers (GET) 사용
             var url = 'https://mc.adobe.io/' + tenant + '/target/offers?workspace=' + encodeURIComponent(wsId);
             var r = await fetch(url, {
@@ -380,7 +447,59 @@ router.get('/list', async function (req, res) {
                 });
             }
         }
+        if (wsRes.mode === 'subset') {
+            all = filterOffersByWorkspaceAllowlist(all, wsRes.workspaceIdSet);
+        }
+
+        // created-offers-store는 "이 앱으로 만든 offerId"를 완전하게 알고 있고,
+        // /target/offers listing은 페이지/정렬/타입 차이로 누락될 수 있어 병합 보강한다.
+        // (Activities의 hydrateCreatedActivitiesNotInList와 동일한 목적)
         if (!allMode) {
+            var entries = listCreatedOffersForApi(tenant, config.clientId);
+            var subsetFallbackWs = (wsRes.mode === 'subset' && wsRes.workspaces.length) ? wsRes.workspaces[0].id : '';
+            if (wsRes.mode === 'subset') {
+                entries = entries.filter(function (e) {
+                    var wid = String(e.workspaceId || '').trim();
+                    if (!wid) return true; // fetchOneCreatedOfferForList에서 선택 WS로 재시도
+                    return wsRes.workspaceIdSet.has(wid);
+                });
+            } else if (workspaceId) {
+                entries = entries.filter(function (e) { return String(e.workspaceId || '') === String(workspaceId); });
+            }
+
+            if (entries.length) {
+                var byId = new Set();
+                all.forEach(function (o) { byId.add(String(o.id || o.offerId)); });
+                for (var i0 = 0; i0 < entries.length; i0 += CONCURRENCY) {
+                    var batch0 = entries.slice(i0, i0 + CONCURRENCY);
+                    var fetched0 = await Promise.all(batch0.map(function (e) {
+                        return fetchOneCreatedOfferForList(tenant, accessToken, e, wsRes, workspaceId, subsetFallbackWs);
+                    }));
+                    fetched0.forEach(function (r) {
+                        if (!r || !r.ok || !r.data) return;
+                        var oid = String(r.data.id || r.data.offerId || (r._meta && r._meta.id) || '').trim();
+                        if (!oid || byId.has(oid)) return;
+                        var wsId2 = String(r._meta && r._meta.workspaceId != null ? r._meta.workspaceId : '').trim();
+                        if (!wsId2) wsId2 = String(workspaceIdFromOfferPayload(r.data) || '').trim();
+                        if (wsRes.mode === 'subset' && wsId2 && !wsRes.workspaceIdSet.has(wsId2)) return;
+                        if (workspaceId && wsId2 && String(wsId2) !== String(workspaceId)) return;
+                        if (!wsId2) return;
+                        var ws2 = WORKSPACES.find(function (w) { return String(w.id) === String(wsId2); });
+                        var wsName2 = ws2 ? ws2.name : wsId2;
+                        all.push(Object.assign({}, r.data, { workspaceId: wsId2, workspaceName: wsName2 }));
+                        byId.add(oid);
+                    });
+                }
+            }
+        }
+
+        if (allMode) {
+            return res.json({ offers: all });
+        }
+
+        if (config.creatorEmail || config.creatorImsUserId) {
+            all = await filterOffersByCreator(all, accessToken, tenant);
+        } else {
             all = all.filter(function (o) { return createdIds.has(String(o.id || o.offerId)); });
         }
         res.json({ offers: all });

@@ -6,7 +6,7 @@
     <title>Adobe Target Activity Generator</title>
     <!-- Design System: Pretendard (한글 가독성) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20260407">
     <!-- 다크모드 초기 깜빡임 방지 -->
     <script>
         (function () {
@@ -56,7 +56,7 @@
                         </label>
                         <div id="workspaceCheckboxes" class="workspace-checkboxes"></div>
                     </div>
-                    <div class="hint" style="margin-top:8px;">선택한 워크스페이스 각각에 Offer/Activity를 생성합니다. (기존 Offer 모드는 1개만 필요)</div>
+                    <p class="hint-disclaimer">Creates an offer or activity in each checked workspace. Legacy offer mode: select only one workspace.</p>
                 </div>
                 <div id="tokenStatus" class="status-message"></div>
             </div>
@@ -133,7 +133,7 @@
                 <div class="form-group">
                     <label for="activityPriority">Priority</label>
                     <input type="number" id="activityPriority" class="form-control" min="0" max="999" value="5" placeholder="5">
-                    <div class="hint">Target 액티비티 우선순위 (0–999, 기본 5)</div>
+                    <p class="hint-disclaimer">Target activity priority (0–999, default 5).</p>
                 </div>
                 <div class="form-group">
                     <label for="activityPropertyIds">Target Property IDs <span class="hint">(선택)</span></label>
@@ -187,9 +187,20 @@
         <div id="tab-my-content" class="tab-panel" role="tabpanel" aria-hidden="true" style="display: none;">
             <section class="card">
                 <div class="card-header">
-                    <h2>All workspaces</h2>
+                    <h2>Load scope</h2>
                 </div>
                 <div class="card-body">
+                    <div class="form-group">
+                        <label>Workspaces (same as Create tab — multi-select)</label>
+                        <div class="workspace-checkboxes-toolbar">
+                            <label class="workspace-select-all">
+                                <input type="checkbox" id="myContentWorkspaceSelectAll">
+                                Select all
+                            </label>
+                            <div id="myContentWorkspaceCheckboxes" class="workspace-checkboxes"></div>
+                        </div>
+                        <p class="hint-disclaimer">Only checked workspaces are queried against the Adobe API when you click Load Activities or Load Offers (fewer calls, faster load).</p>
+                    </div>
                     <div class="my-content-load-actions">
                         <button type="button" id="myContentLoadActivitiesBtn" class="btn btn-primary">Load Activities</button>
                         <button type="button" id="myContentLoadOffersBtn" class="btn btn-primary">Load Offers</button>
@@ -197,6 +208,13 @@
                     <div id="myContentStatus" class="status-message" style="margin-top: 12px;"></div>
                 </div>
             </section>
+
+            <div class="my-content-subtabs" role="tablist" aria-label="Activities and Offers">
+                <button type="button" class="my-content-subtab active" data-my-subtab="activities" role="tab" aria-selected="true" id="myContentSubtabActivities">Activities</button>
+                <button type="button" class="my-content-subtab" data-my-subtab="offers" role="tab" aria-selected="false" id="myContentSubtabOffers">Offers</button>
+            </div>
+
+            <div id="my-content-panel-activities" class="my-content-subpanel" role="tabpanel" aria-labelledby="myContentSubtabActivities">
             <section class="card">
                 <div class="card-header">
                     <h2>Activities</h2>
@@ -204,16 +222,35 @@
                 <div class="card-body">
                     <div class="form-group" style="margin-bottom: 12px;">
                         <label for="activityNameFilter">Filter by Activity name</label>
-                        <input type="text" id="activityNameFilter" class="form-control" placeholder="Search activity name...">
+                        <input type="text" id="activityNameFilter" class="form-control" placeholder="Search activity name or ID...">
                     </div>
                     <div class="activity-toolbar" style="margin-bottom: 12px;">
-                        <button type="button" id="activityEditBtn" class="btn btn-small">선택 수정</button>
-                        <button type="button" id="activityDeleteBtn" class="btn btn-small">선택 삭제</button>
+                        <button type="button" id="activityEditBtn" class="btn btn-small">Edit selected</button>
+                        <button type="button" id="activityDeleteBtn" class="btn btn-small">Delete selected</button>
                     </div>
                     <div id="myActivitiesStatus" class="status-message" style="margin-bottom: 12px; display: none;"></div>
                     <div id="myActivitiesList" class="content-list content-list-with-ws"></div>
                 </div>
             </section>
+            </div>
+
+            <div id="my-content-panel-offers" class="my-content-subpanel is-hidden" role="tabpanel" aria-labelledby="myContentSubtabOffers" hidden>
+            <section class="card">
+                <div class="card-header">
+                    <h2>Offers</h2>
+                </div>
+                <div class="card-body">
+                    <div class="activity-toolbar" style="margin-bottom: 12px;">
+                        <button type="button" id="offerEditBtn" class="btn btn-small">Edit selected</button>
+                        <button type="button" id="offerDeleteBtn" class="btn btn-small">Delete selected</button>
+                    </div>
+                    <div id="myOffersStatus" class="status-message" style="margin-bottom: 12px; display: none;"></div>
+                    <div id="myOffersList" class="content-list content-list-with-ws-offers"></div>
+                    <div id="myOffersBatchResult" class="batch-result" style="display:none;"></div>
+                </div>
+            </section>
+            </div>
+
             <div id="activityEditModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="activityEditModalTitle" style="display: none;">
                 <div class="modal-card">
                     <div class="modal-header">
@@ -246,20 +283,6 @@
                     </div>
                 </div>
             </div>
-            <section class="card">
-                <div class="card-header">
-                    <h2>Offers</h2>
-                </div>
-                <div class="card-body">
-                    <div class="activity-toolbar" style="margin-bottom: 12px;">
-                        <button type="button" id="offerEditBtn" class="btn btn-small">선택 수정</button>
-                        <button type="button" id="offerDeleteBtn" class="btn btn-small">선택 삭제</button>
-                    </div>
-                    <div id="myOffersStatus" class="status-message" style="margin-bottom: 12px; display: none;"></div>
-                    <div id="myOffersList" class="content-list content-list-with-ws-offers"></div>
-                    <div id="myOffersBatchResult" class="batch-result" style="display:none;"></div>
-                </div>
-            </section>
             <div id="offerEditModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="offerEditModalTitle" style="display: none;">
                 <div class="modal-card" style="max-width: 560px;">
                     <div class="modal-header">
@@ -295,11 +318,11 @@
         <!-- /tab-my-content -->
     </div>
 
-    <script src="js/utils.js?v=20260403"></script>
-    <script src="js/offers.js?v=20260403"></script>
-    <script src="js/activities.js?v=20260403c"></script>
-    <script src="js/my-content.js?v=20260403"></script>
-    <script src="js/theme.js?v=20260403"></script>
-    <script src="js/app.js?v=20260403"></script>
+    <script src="js/utils.js?v=20260406"></script>
+    <script src="js/offers.js?v=20260406"></script>
+    <script src="js/activities.js?v=20260406"></script>
+    <script src="js/my-content.js?v=20260410"></script>
+    <script src="js/theme.js?v=20260406"></script>
+    <script src="js/app.js?v=20260406"></script>
 </body>
 </html>
