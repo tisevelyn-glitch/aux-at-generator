@@ -6,6 +6,9 @@ const fetch = require('node-fetch');
 const router = express.Router();
 const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, getOfferByIdContentOrJson, fetchPropertiesForWorkspace, getActivityChangelog, changelogHasAuthor, resolveWorkspacesFromQuery } = require('../lib/adobe');
 const { addCreated, getCreatedIdsForApi, removeFromCreated } = require('../lib/created-activities-store');
+const { insertCreationEvent } = require('../lib/creation-events');
+const { extractQaPreviewFromActivity, fetchActivityQaPreview } = require('../lib/target-activity-qa');
+const { getQALink } = require('../lib/target-ab-preview-links');
 
 var CONCURRENCY = 5;
 var MAX_ACTIVITIES_FOR_CHANGELOG = 250;
@@ -464,9 +467,47 @@ router.get('/:id', async function (req, res) {
         var data;
         try { data = JSON.parse(text); } catch (e) { data = null; }
         if (!r.ok) return res.status(r.status).json({ error: (data && (data.message || data.errors && data.errors[0] && data.errors[0].message)) || text || 'Failed to get activity' });
-        res.json(data);
+        var qaPreview = extractQaPreviewFromActivity(data);
+        res.json(Object.assign({}, data, { qaPreview: qaPreview }));
     } catch (error) {
         console.error('[Activity GET] catch:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/activities/:id/preview-qa — Adobe Admin API "Create preview links" (AB/XT activity)
+router.post('/:id/preview-qa', async function (req, res) {
+    try {
+        var activityId = req.params.id;
+        var testUrl = String(req.body.testUrl || '').trim();
+        var workspaceId = String(req.body.workspaceId || '').trim();
+        var activityType = String(req.body.activityType || 'ab').toLowerCase() === 'xt' ? 'xt' : 'ab';
+        if (!activityId) return res.status(400).json({ error: 'Activity ID is required.' });
+        if (!testUrl) return res.status(400).json({ error: 'testUrl is required (base page URL for QA links).' });
+        if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required.' });
+        var tenant = config.tenant;
+        if (!tenant || !config.clientId) {
+            return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
+        }
+        var accessToken = await getToken();
+        var r = await getQALink(accessToken, workspaceId, activityId, testUrl, tenant, config.clientId, { activityType: activityType });
+        if (!r.ok) {
+            // IMPORTANT: do not return 401 to browser unless session auth failed.
+            // 401 from Adobe would trigger fetchJson() to redirect to /login (looks like a page refresh).
+            var http = (r.status && r.status >= 400 && r.status < 600) ? r.status : 502;
+            if (http === 401 || http === 403) http = 502;
+            return res.status(http).json({
+                error: r.error || 'Preview API failed',
+                details: r.data || null
+            });
+        }
+        res.json({
+            activityName: r.activityName || null,
+            links: r.links || [],
+            note: r.note || null
+        });
+    } catch (error) {
+        console.error('[Activity preview-qa] catch:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -526,6 +567,21 @@ router.delete('/:id', async function (req, res) {
         }
         // store에 있던 항목이면 정리 (creator 기반 삭제로 들어온 경우엔 no-op)
         removeFromCreated(tenant, config.clientId, activityId);
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: '',
+                resource_type: 'activity',
+                resource_id: String(activityId),
+                event_type: 'delete',
+                actor: (req.session && req.session.user) ? String(req.session.user) : null,
+                status: 'ok',
+                response_json: data
+            });
+        } catch (e) {
+            console.warn('[Activity DELETE] DB log failed:', e.message || e);
+        }
         res.json({ success: true, activityId: activityId });
     } catch (error) {
         console.error('[Activity DELETE] catch:', error);
@@ -630,6 +686,26 @@ router.put('/:id/options', async function (req, res) {
         var payload = putData && typeof putData === 'object' ? putData : { success: true };
         if (hasPriorityUpdate && (payload.priority == null || payload.priority === undefined)) {
             payload.priority = putBody.priority;
+        }
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: String(workspaceId),
+                resource_type: 'activity',
+                resource_id: String(activityId),
+                activity_type: typePath,
+                name: String(activity && activity.name ? activity.name : ''),
+                event_type: 'update',
+                actor: (req.session && req.session.user) ? String(req.session.user) : null,
+                status: 'ok',
+                request_json: req.body,
+                response_json: payload,
+                before_json: activity,
+                after_json: payload
+            });
+        } catch (e) {
+            console.warn('[Activity options PUT] DB log failed:', e.message || e);
         }
         res.json(payload);
     } catch (error) {
@@ -932,7 +1008,30 @@ router.post('/create', async function (req, res) {
 
         var newId = data.id || data.activityId;
         addCreated(tenant, config.clientId, newId);
-        res.json({ activityId: newId, activityType: activityType, activity: data });
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: workspaceIdStr,
+                resource_type: 'activity',
+                resource_id: String(newId),
+                activity_type: activityType,
+                name: name,
+                creator_ims_user_id: config.creatorImsUserId || null,
+                creator_email: config.creatorEmail || null,
+                request_json: req.body,
+                response_json: data
+            });
+        } catch (e) {
+            console.warn('[Activity Create] DB log failed:', e.message || e);
+        }
+        var qaPreviewCreate = { experiences: [], note: null };
+        try {
+            qaPreviewCreate = await fetchActivityQaPreview(tenant, accessToken, config.clientId, newId, typePath);
+        } catch (e) {
+            console.warn('[Activity Create] QA preview fetch failed:', e.message || e);
+        }
+        res.json({ activityId: newId, activityType: activityType, activity: data, qaPreview: qaPreviewCreate });
     } catch (error) {
         console.error('[Activity Create] catch:', error);
         res.status(500).json({ error: error.message });
@@ -975,6 +1074,22 @@ router.put('/state', async function (req, res) {
             return res.status(response.status).json({ error: data.message || data.error || 'Failed to update activity state' });
         }
 
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: '',
+                resource_type: 'activity',
+                resource_id: String(activityId),
+                event_type: 'state_change',
+                actor: (req.session && req.session.user) ? String(req.session.user) : null,
+                status: 'ok',
+                request_json: { state: state },
+                response_json: data
+            });
+        } catch (e) {
+            console.warn('[Activity State] DB log failed:', e.message || e);
+        }
         res.json({ success: true, activityId: activityId, state: state, data: data });
     } catch (error) {
         console.error('[Activity State] catch:', error);

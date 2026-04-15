@@ -6,6 +6,7 @@ const fetch = require('node-fetch');
 const router = express.Router();
 const { config, WORKSPACES, DEFAULT_WORKSPACE_ID, getToken, getOfferById, getOfferByIdContentOrJson, getActivityChangelog, changelogHasAuthor, resolveWorkspacesFromQuery } = require('../lib/adobe');
 const { addCreatedOffer, listCreatedOffersForApi, getCreatedOfferIdsForApi, getCreatedOfferMetaById, removeFromCreatedOffers } = require('../lib/created-offers-store');
+const { insertCreationEvent } = require('../lib/creation-events');
 
 var CONCURRENCY = 5;
 var MAX_ACTIVITIES_FOR_CHANGELOG = 250;
@@ -614,6 +615,22 @@ router.post('/create', async function (req, res) {
         var offerId = data.id || data.offerId;
         console.log('[Offer Create] offerId=%s', offerId);
         addCreatedOffer(tenant, config.clientId, offerId, workspaceIdStr);
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: workspaceIdStr,
+                resource_type: 'offer',
+                resource_id: String(offerId),
+                name: name,
+                creator_ims_user_id: config.creatorImsUserId || null,
+                creator_email: config.creatorEmail || null,
+                request_json: { name: name, workspaceId: workspaceIdStr },
+                response_json: data
+            });
+        } catch (e) {
+            console.warn('[Offer Create] DB log failed:', e.message || e);
+        }
         res.json({ offerId: offerId, offer: data });
     } catch (error) {
         console.error('[Offer Create] catch:', error);
@@ -642,6 +659,7 @@ router.put('/:id', async function (req, res) {
         if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required for offer update.' });
 
         var accessToken = await getToken();
+        var beforeOffer = null;
 
         // allow partial update: if missing name/content, fill from current offer
         if (!name || !content) {
@@ -652,9 +670,16 @@ router.put('/:id', async function (req, res) {
                     details: current.data || null
                 });
             }
+            beforeOffer = current.data;
             if (!name) name = String(current.data.name || '').trim();
             if (!content) content = String(current.data.content || '').trim();
             if (!name || !content) return res.status(400).json({ error: 'Resolved offer name/content are empty.' });
+        } else {
+            // best-effort: capture before snapshot for audit
+            try {
+                var cur2 = await getOfferByIdContentOrJson(tenant, accessToken, offerId, workspaceId);
+                if (cur2.ok && cur2.data) beforeOffer = cur2.data;
+            } catch (e) {}
         }
 
         var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/offers/content/' + encodeURIComponent(offerId) + '?workspace=' + encodeURIComponent(workspaceId);
@@ -676,6 +701,25 @@ router.put('/:id', async function (req, res) {
         try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
         if (!r.ok) {
             return res.status(r.status).json({ error: data.message || data.error || (data.errors && data.errors[0] && data.errors[0].message) || text || 'Failed to update offer', details: data });
+        }
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: workspaceId,
+                resource_type: 'offer',
+                resource_id: String(offerId),
+                name: name,
+                event_type: 'update',
+                actor: (req.session && req.session.user) ? String(req.session.user) : null,
+                status: 'ok',
+                request_json: { name: name, content: content, workspaceId: workspaceId },
+                response_json: data,
+                before_json: beforeOffer,
+                after_json: data
+            });
+        } catch (e) {
+            console.warn('[Offer PUT] DB log failed:', e.message || e);
         }
         res.json({ success: true, offerId: offerId, offer: data });
     } catch (error) {
@@ -700,6 +744,11 @@ router.delete('/:id', async function (req, res) {
         if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required for offer delete.' });
 
         var accessToken = await getToken();
+        var beforeOffer = null;
+        try {
+            var cur = await getOfferByIdContentOrJson(tenant, accessToken, offerId, workspaceId);
+            if (cur.ok && cur.data) beforeOffer = cur.data;
+        } catch (e) {}
         var apiUrl = 'https://mc.adobe.io/' + tenant + '/target/offers/content/' + encodeURIComponent(offerId) + '?workspace=' + encodeURIComponent(workspaceId);
         var r = await fetch(apiUrl, {
             method: 'DELETE',
@@ -717,6 +766,22 @@ router.delete('/:id', async function (req, res) {
             return res.status(r.status).json({ error: (data && (data.message || data.error || data.errors && data.errors[0] && data.errors[0].message)) || text || 'Failed to delete offer' });
         }
         removeFromCreatedOffers(tenant, config.clientId, offerId);
+        try {
+            await insertCreationEvent({
+                tenant: tenant,
+                client_id: config.clientId,
+                workspace_id: workspaceId,
+                resource_type: 'offer',
+                resource_id: String(offerId),
+                event_type: 'delete',
+                actor: (req.session && req.session.user) ? String(req.session.user) : null,
+                status: 'ok',
+                response_json: data,
+                before_json: beforeOffer
+            });
+        } catch (e) {
+            console.warn('[Offer DELETE] DB log failed:', e.message || e);
+        }
         res.json({ success: true, offerId: offerId });
     } catch (error) {
         console.error('[Offer DELETE] catch:', error);

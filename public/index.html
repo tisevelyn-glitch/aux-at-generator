@@ -6,7 +6,7 @@
     <title>Adobe Target Activity Generator</title>
     <!-- Design System: Pretendard (한글 가독성) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-    <link rel="stylesheet" href="style.css?v=20260407">
+    <link rel="stylesheet" href="style.css?v=20260414b">
     <!-- 다크모드 초기 깜빡임 방지 -->
     <script>
         (function () {
@@ -144,6 +144,11 @@
                         <input type="checkbox" id="activityOmitPropertyIds" value="1">
                         <span>Activity 요청에서 propertyIds 생략 <span class="hint">(오퍼가 속성과 안 맞을 때 시도)</span></span>
                     </label>
+                </div>
+                <div class="form-group">
+                    <label for="qaTestPageUrl">QA test page URL</label>
+                    <input type="url" id="qaTestPageUrl" class="form-control" placeholder="https://www.example.com/your-activity-page" value="">
+                    <p class="hint-disclaimer">Adobe Target Admin API <strong>Create preview links</strong> (<code>POST …/activities/ab|xt/{id}/preview</code>)에 넘길 페이지 URL입니다. 비우면 생성 후 QA 링크 출력 시 <code>https://www.adobe.com</code>을 기본으로 사용합니다.</p>
                 </div>
 
                 <!-- Traffic: AB-M — Experience A~E, 최대 5개 -->
@@ -314,14 +319,41 @@
                     </div>
                 </div>
             </div>
+
+            <div id="dbHistoryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dbHistoryModalTitle" style="display: none;">
+                <div class="modal-card" style="max-width: 760px;">
+                    <div class="modal-header">
+                        <h3 id="dbHistoryModalTitle">DB event history</h3>
+                        <button type="button" class="modal-close" id="dbHistoryModalClose" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="modal-body db-history-modal-body" id="dbHistoryModalBody"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-small" id="dbHistoryModalDismiss">Close</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="activityQaModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="activityQaModalTitle" style="display: none;">
+                <div class="modal-card" style="max-width: 640px;">
+                    <div class="modal-header">
+                        <h3 id="activityQaModalTitle">Activity QA</h3>
+                        <button type="button" class="modal-close" id="activityQaModalClose" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="modal-body db-history-modal-body" id="activityQaModalBody"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-small" id="activityQaModalDismiss">Close</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <!-- /tab-my-content -->
     </div>
 
     <script src="js/utils.js?v=20260406"></script>
+    <script src="js/shared/workspaces.js?v=20260407"></script>
     <script src="js/offers.js?v=20260406"></script>
-    <script src="js/activities.js?v=20260406"></script>
-    <script src="js/my-content.js?v=20260410"></script>
+    <script src="js/activities.js?v=20260414b"></script>
+    <script src="js/my-content.js?v=20260414h"></script>
     <script src="js/theme.js?v=20260406"></script>
     <script src="js/app.js?v=20260406"></script>
 </body>

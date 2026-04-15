@@ -60,6 +60,8 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use('/api', require('./routes/auth'));
 app.use('/api/offers', require('./routes/offers'));
 app.use('/api/activities', require('./routes/activities'));
+app.use('/api/creation-events', require('./routes/creation-events'));
+app.use('/api/activity-qa-links', require('./routes/activity-qa-links'));
 
 // 서버 시작
 const { config } = require('./lib/adobe');

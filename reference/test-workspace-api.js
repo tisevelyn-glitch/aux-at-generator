@@ -7,11 +7,15 @@
  *   node test-workspace-api.js SEUK 2101999 → SEUK + 해당 workspace에 이미 있는 Offer ID 사용 (Target UI에서 SEUK에 만든 Offer)
  *   node test-workspace-api.js 223093514    → workspace ID로 지정
  * "Offer not accessible in provided workspaces" 나오면: 해당 workspace에 Offer가 없는 것. Target UI에서 그 workspace에 Offer 하나 만든 뒤 ID를 인자로 넘기면 됨.
+ *
+ * Activity 생성 성공 후 QA 링크: Admin API POST …/activities/ab/{id}/preview
+ *   환경변수 QA_TEST_URL (기본 https://www.adobe.com) — preview 요청 본문의 url 필드
  */
 require('dotenv').config();
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const { getQALink } = require('../lib/target-ab-preview-links');
 
 // JSON 디버그 저장 (기본 ON). 끄려면 DEBUG_JSON=0
 const DEBUG_JSON_ENABLED = String(process.env.DEBUG_JSON || '1') !== '0';
@@ -377,7 +381,22 @@ async function main() {
     results[ws.id] = actRes;
     if (actRes.ok) {
       const activityId = actRes.data.id;
+      const activityName = actRes.data.name || `Activity ${activityId}`;
+      const qaTestUrl = (process.env.QA_TEST_URL || 'https://www.adobe.com').trim();
       created.push({ ws, activityId });
+      try {
+        const qa = await getQALink(token, ws.id, activityId, qaTestUrl, config.tenant, config.clientId, { activityType: 'ab' });
+        if (qa.ok && qa.links && qa.links.length) {
+          qa.links.forEach(L => {
+            const suffix = qa.links.length > 1 && L.name ? ` · ${L.name}` : '';
+            console.log(`✅ [${activityName}${suffix}] QA 링크: ${L.url}`);
+          });
+        } else {
+          console.log(`⚠️ [${activityName}] QA 링크 없음: ${qa.note || qa.error || 'unknown'}`);
+        }
+      } catch (e) {
+        console.log(`⚠️ [${activityName}] QA 링크 조회 실패: ${e.message || e}`);
+      }
       const actual = await getActivityById(token, activityId);
       const actualWs = actual?.workspace ? String(actual.workspace) : '(응답에 없음)';
       const wantedWs = String(ws.id);

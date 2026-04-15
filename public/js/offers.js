@@ -12,7 +12,11 @@ var offerSearchEmpty = document.getElementById('offerSearchEmpty');
 var tokenStatus = document.getElementById('tokenStatus');
 var offerCreateBtn = document.getElementById('offerCreateBtn');
 var offerCreateResult = document.getElementById('offerCreateResult');
+
 function getSelectedWorkspaceIds() {
+    if (window.Workspaces && typeof window.Workspaces.getSelectedWorkspaceIds === 'function') {
+        return window.Workspaces.getSelectedWorkspaceIds();
+    }
     var cbs = document.querySelectorAll('.workspace-cb:checked');
     var ids = [];
     cbs.forEach(function (cb) { ids.push(cb.value); });

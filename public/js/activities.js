@@ -37,6 +37,107 @@ if (activityTypeElForTraffic) {
     updateTrafficUi();
 }
 
+function activityTypeQueryForDetailFetch(activityType) {
+    return (activityType === 'xt') ? '?activityType=xt' : '';
+}
+
+function formatQaPreviewForResult(qaPreview) {
+    if (!qaPreview) return '';
+    var lines = [];
+    lines.push('--- Activity QA (append to your site page URL) ---');
+    if (qaPreview.note && (!qaPreview.experiences || qaPreview.experiences.length === 0)) {
+        lines.push(qaPreview.note);
+    }
+    var any = false;
+    (qaPreview.experiences || []).forEach(function (row, ix) {
+        var lid = row.experienceLocalId != null ? row.experienceLocalId : ix;
+        var label = 'Experience ' + lid + (row.name ? ' — ' + row.name : '');
+        if (row.qaQueryString) {
+            any = true;
+            lines.push(label + ':');
+            lines.push('  ?' + row.qaQueryString);
+        } else if (row.rawPreviewFields) {
+            any = true;
+            lines.push(label + ' (preview-related API fields; confirm in Target UI → Activity QA):');
+            try {
+                lines.push('  ' + JSON.stringify(row.rawPreviewFields).slice(0, 800));
+            } catch (e) {
+                lines.push('  (unserializable)');
+            }
+        }
+    });
+    if (!any && (qaPreview.experiences || []).length > 0 && !qaPreview.note) {
+        lines.push('Adobe returned experiences but no known QA query fields. Use Target UI → Activity QA.');
+    }
+    return lines.join('\n') + '\n';
+}
+
+function defaultQaBaseUrlForWorkspaceId(workspaceId) {
+    var ws = String(workspaceId || '').trim();
+    if (!ws) return 'https://www.samsung.com/uk';
+    // Default + UK
+    if (ws === '222991964' || ws === '223093514') return 'https://www.samsung.com/uk';
+    // SEG
+    if (ws === '223101884') return 'https://www.samsung.com/de';
+    // SEF
+    if (ws === '259214924') return 'https://www.samsung.com/fr';
+    // SEIB-ES
+    if (ws === '808870526') return 'https://www.samsung.com/es';
+    // SEIB-PT
+    if (ws === '812325246') return 'https://www.samsung.com/pt';
+    // SEBN
+    if (ws === '223101869') return 'https://www.samsung.com/nl';
+    return 'https://www.samsung.com/uk';
+}
+
+function getQaTestPageUrlFromDom(workspaceId) {
+    var el = document.getElementById('qaTestPageUrl');
+    var v = el && el.value ? String(el.value).trim() : '';
+    if (v) return v;
+    return defaultQaBaseUrlForWorkspaceId(workspaceId);
+}
+
+function appendQaLinesAfterState(activityId, activityType, workspaceId) {
+    var testUrl = getQaTestPageUrlFromDom(workspaceId);
+    var ws = String(workspaceId || '').trim();
+    if (!ws) {
+        showResult('QA preview: workspaceId missing (cannot call preview API).\n', 'error');
+        return Promise.resolve();
+    }
+    var type = activityType === 'xt' ? 'xt' : 'ab';
+    return fetchJson(API_BASE + '/activities/' + encodeURIComponent(activityId) + '/preview-qa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testUrl: testUrl, workspaceId: ws, activityType: type })
+    }).then(function (pr) {
+        var d = pr.data || {};
+        if (!pr.ok) {
+            showResult('QA preview API: ' + (d.error || ('HTTP ' + pr.status)) + '\n', 'error');
+            return null;
+        }
+        var links = d.links || [];
+        var name = d.activityName || '';
+        var label = name || String(activityId);
+        if (links.length) {
+            var j;
+            for (j = 0; j < links.length; j++) {
+                var L = links[j];
+                var suffix = links.length > 1 && L.name ? ' · ' + L.name : '';
+                showResult('✅ [' + label + suffix + '] QA 링크: ' + L.url + '\n', 'success');
+            }
+            return;
+        }
+        showResult('QA preview API: 링크 없음. ' + (d.note || '') + '\n', 'error');
+        var qs = activityTypeQueryForDetailFetch(type);
+        return fetchJson(API_BASE + '/activities/' + encodeURIComponent(activityId) + qs).then(function (detailR) {
+            var qp = detailR.data && detailR.data.qaPreview;
+            if (detailR.ok && qp) {
+                showResult('(Fallback) GET activity qaPreview:\n' + formatQaPreviewForResult(qp), 'success');
+            }
+        });
+    });
+}
+
 // ── AB-M: Experience A–E (최대 5) ─────────────────────────────────
 var AB_EXP_MIN = 2;
 var AB_EXP_MAX = 5;
@@ -206,6 +307,9 @@ function initAbExperienceRows() {
 }
 
 function getSelectedWorkspaceIds() {
+    if (window.Workspaces && typeof window.Workspaces.getSelectedWorkspaceIds === 'function') {
+        return window.Workspaces.getSelectedWorkspaceIds();
+    }
     var cbs = document.querySelectorAll('.workspace-cb:checked');
     var ids = [];
     cbs.forEach(function (cb) { ids.push(cb.value); });
@@ -487,6 +591,8 @@ async function createActivitiesOnly() {
             if (!stateR.ok) throw new Error(stateData.error || '[' + wLabel + '] Failed to update activity state');
             showResult('[' + wLabel + '] State updated.\n', 'success');
 
+            await appendQaLinesAfterState(activityId, activityType, wId);
+
             results.push({ workspace: wLabel, activityId: activityId });
         }
 
@@ -684,6 +790,9 @@ async function runAutomation() {
             var stateData = stateR.data;
             if (!stateR.ok) throw new Error(stateData.error || '[' + wLabel + '] Failed to update activity state');
             showResult('[' + wLabel + '] State updated.\n', 'success');
+
+            await appendQaLinesAfterState(activityId, activityType, wId);
+
             results.push({
                 workspace: wLabel,
                 abExperiences: finalAbList,

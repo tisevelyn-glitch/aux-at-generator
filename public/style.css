@@ -659,7 +659,7 @@ textarea.form-control {
     border-bottom: none;
 }
 
-/* Activities: 8 cols — minmax로 줄바꿈·겹침 완화, 좁은 화면은 가로 스크롤 */
+/* Activities: 9 cols (QA) — minmax로 줄바꿈·겹침 완화, 좁은 화면은 가로 스크롤 */
 .content-list-with-ws .content-list-item-ws {
     grid-template-columns:
         32px
@@ -669,10 +669,11 @@ textarea.form-control {
         2.75rem
         minmax(9.5rem, 1fr)
         minmax(3.25rem, 0.4fr)
-        4.5rem;
+        2.75rem
+        minmax(6.5rem, 0.55fr);
     column-gap: 10px;
     align-items: center;
-    min-width: min(100%, 720px);
+    min-width: min(100%, 780px);
 }
 
 .content-list-with-ws .content-list-item-ws > span {
@@ -703,22 +704,35 @@ textarea.form-control {
     text-align: center;
 }
 
+.content-list-with-ws .content-list-qa {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.content-list-header .content-list-qa {
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+}
+
 .content-list-with-ws .content-list-actions {
     justify-content: flex-end;
     flex-shrink: 0;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
-/* Offers 리스트 — 5 cols */
+/* Offers 리스트 — 6 cols (History) */
 .content-list-with-ws-offers .content-list-item-ws {
     grid-template-columns:
         32px
         minmax(5.25rem, 0.8fr)
         minmax(4.5rem, 0.5fr)
-        minmax(8rem, 1.5fr)
-        minmax(6.5rem, 0.75fr);
+        minmax(8rem, 1.35fr)
+        minmax(6.5rem, 0.7fr)
+        minmax(5rem, 0.45fr);
     column-gap: 10px;
     align-items: center;
-    min-width: min(100%, 560px);
+    min-width: min(100%, 620px);
 }
 
 .content-list-with-ws-offers .content-list-item-ws > span {
@@ -737,6 +751,95 @@ textarea.form-control {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.content-list-with-ws-offers .content-list-actions {
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.db-history-modal-body {
+    /* IMPORTANT: avoid nested scroll containers inside .modal-card (overflow:auto)
+       which can cause content (especially textarea) to disappear while scrolling on some browsers. */
+    max-height: none;
+    overflow: visible;
+    font-size: 13px;
+}
+
+.db-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.db-history-table th,
+.db-history-table td {
+    border: 1px solid hsl(var(--border));
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.db-history-table th {
+    background: hsl(var(--jss-surface-2));
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.db-history-table pre.db-history-json {
+    margin: 0;
+    max-height: 140px;
+    overflow: auto;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.btn-db-history {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: hsl(var(--jss-primary-text));
+    background: transparent;
+    border: 1px solid hsl(var(--border));
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-db-history:hover {
+    background: hsl(var(--jss-surface-2));
+}
+
+.btn-activity-qa {
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    background: hsl(var(--jss-surface-2));
+    border: 1px solid hsl(var(--border));
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-activity-qa:hover {
+    background: hsl(var(--muted));
+}
+
+.activity-qa-exp-title {
+    margin: 12px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.activity-qa-ta {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 11px;
+    margin-bottom: 6px;
+}
+
+.activity-qa-block + .activity-qa-block {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid hsl(var(--border));
 }
 
 .content-list-type {
@@ -861,7 +964,11 @@ textarea.form-control {
     max-width: 440px;
     width: 100%;
     max-height: 90vh;
-    overflow: auto;
+    /* Avoid scroll on the card itself (can cause disappearing content on some browsers).
+       Make only .modal-body scroll. */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .modal-header {
@@ -894,6 +1001,12 @@ textarea.form-control {
 
 .modal-body {
     padding: var(--sp-3);
+    /* The only scroll container inside modal */
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1 1 auto;
+    /* Prevent scroll anchoring from jumping when async content updates */
+    overflow-anchor: none;
 }
 
 .modal-footer {
