@@ -341,7 +341,7 @@ router.get('/list', async function (req, res) {
                         all.push(Object.assign({}, a, { workspaceId: wsId, workspaceName: wsName }));
                     });
                 }
-                var createdIds = getCreatedIdsForApi(tenant, config.clientId);
+                var createdIds = await getCreatedIdsForApi(tenant, config.clientId);
                 all = await hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, hydrateScope);
                 if (config.creatorEmail || config.creatorImsUserId) {
                     all = await filterActivitiesByCreator(all, accessToken, tenant, createdIds);
@@ -368,7 +368,7 @@ router.get('/list', async function (req, res) {
             activities = activities.map(function (a) {
                 return Object.assign({}, a, { workspaceId: workspaceId, workspaceName: workspaceName });
             });
-            var createdIdsOne = getCreatedIdsForApi(tenant, config.clientId);
+            var createdIdsOne = await getCreatedIdsForApi(tenant, config.clientId);
             activities = await hydrateCreatedActivitiesNotInList(activities, tenant, accessToken, createdIdsOne, workspaceId);
             if (config.creatorEmail || config.creatorImsUserId) {
                 activities = await filterActivitiesByCreator(activities, accessToken, tenant, createdIdsOne);
@@ -522,7 +522,7 @@ router.delete('/:id', async function (req, res) {
         if (!activityId) return res.status(400).json({ error: 'Activity ID is required.' });
         var tenant = config.tenant;
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
-        var createdIds = getCreatedIdsForApi(tenant, config.clientId);
+        var createdIds = await getCreatedIdsForApi(tenant, config.clientId);
         var idStr = String(activityId);
 
         // 1) store에 등록된 건 항상 허용
@@ -566,7 +566,7 @@ router.delete('/:id', async function (req, res) {
             return res.status(r.status).json({ error: (data && (data.message || data.errors && data.errors[0] && data.errors[0].message)) || text || 'Failed to delete activity' });
         }
         // store에 있던 항목이면 정리 (creator 기반 삭제로 들어온 경우엔 no-op)
-        removeFromCreated(tenant, config.clientId, activityId);
+        await removeFromCreated(tenant, config.clientId, activityId);
         try {
             await insertCreationEvent({
                 tenant: tenant,
@@ -602,7 +602,7 @@ router.put('/:id/options', async function (req, res) {
         }
         var tenant = config.tenant;
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
-        var createdIds = getCreatedIdsForApi(tenant, config.clientId);
+        var createdIds = await getCreatedIdsForApi(tenant, config.clientId);
         var idStr = String(activityId);
         var accessToken = await getToken();
         var typePath = (req.query.activityType || 'ab').toLowerCase() === 'xt' ? 'xt' : 'ab';
@@ -715,7 +715,7 @@ router.put('/:id/options', async function (req, res) {
 });
 
 // POST /api/activities/remove-from-mine — "내 목록"에서 제외 (리스트에 더 이상 노출 안 함)
-router.post('/remove-from-mine', function (req, res) {
+router.post('/remove-from-mine', async function (req, res) {
     try {
         var activityId = req.body.activityId;
         if (activityId == null || activityId === '') {
@@ -725,7 +725,7 @@ router.post('/remove-from-mine', function (req, res) {
         if (!tenant || !config.clientId) {
             return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
         }
-        removeFromCreated(tenant, config.clientId, activityId);
+        await removeFromCreated(tenant, config.clientId, activityId);
         res.json({ success: true, activityId: activityId });
     } catch (error) {
         console.error('[Activities remove-from-mine] catch:', error);
@@ -1007,7 +1007,7 @@ router.post('/create', async function (req, res) {
         }
 
         var newId = data.id || data.activityId;
-        addCreated(tenant, config.clientId, newId);
+        await addCreated(tenant, config.clientId, newId);
         try {
             await insertCreationEvent({
                 tenant: tenant,

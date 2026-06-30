@@ -10,7 +10,6 @@ const { insertCreationEvent } = require('../lib/creation-events');
 
 var CONCURRENCY = 5;
 var MAX_ACTIVITIES_FOR_CHANGELOG = 250;
-var MAX_OFFERS_FOR_CREATOR_CHECK = 250;
 
 /** Adobe offer 본문의 workspace → 워크스페이스 ID 문자열 (없으면 null) */
 function workspaceIdFromOfferPayload(offerPayload, depth) {
@@ -133,44 +132,6 @@ function pickOfferDetailsForClient(raw, fetchMeta) {
         status: f.status,
         state: f.state
     };
-}
-
-function creatorStringMatches(actorString, creator) {
-    if (!actorString || !creator) return false;
-    var a = String(actorString).trim().toLowerCase();
-    var c = String(creator).trim().toLowerCase();
-    if (!a || !c) return false;
-    return a === c || a.indexOf(c) !== -1 || c.indexOf(a) !== -1;
-}
-
-async function filterOffersByCreator(offers, accessToken, tenant) {
-    var creator = (config.creatorImsUserId || config.creatorEmail || '').trim();
-    if (!creator || !offers || offers.length === 0) return offers;
-
-    var list = offers.slice(0, MAX_OFFERS_FOR_CREATOR_CHECK);
-    var out = [];
-    for (var i = 0; i < list.length; i += CONCURRENCY) {
-        var batch = list.slice(i, i + CONCURRENCY);
-        var details = await Promise.all(batch.map(function (o) {
-            var oid = String(o.id || o.offerId || '').trim();
-            var wsId = String(o.workspaceId || '').trim();
-            if (!oid || !wsId) return Promise.resolve(null);
-            return getOfferByIdContentOrJson(tenant, accessToken, oid, wsId).then(function (r) {
-                return r && r.ok && r.data ? { offer: o, detail: r } : null;
-            }).catch(function () { return null; });
-        }));
-        details.forEach(function (item) {
-            if (!item) return;
-            var picked = pickOfferDetailsForClient(item.detail.data, { endpoint: item.detail._endpoint });
-            if (creatorStringMatches(picked.createdBy, creator) || creatorStringMatches(picked.modifiedBy, creator)) {
-                out.push(item.offer);
-            }
-        });
-    }
-    if (offers.length > MAX_OFFERS_FOR_CREATOR_CHECK) {
-        console.log('[Offers list] Filtered by creator: checked only first ' + MAX_OFFERS_FOR_CREATOR_CHECK + ' of ' + offers.length);
-    }
-    return out;
 }
 
 async function fetchActivitiesByWorkspaceTyped(tenant, accessToken, workspaceId) {
@@ -421,7 +382,7 @@ router.get('/list', async function (req, res) {
             return res.status(400).json({ error: 'Pass workspaceIds (comma-separated workspace IDs) or workspaceId (single).' });
         }
 
-        var createdIds = getCreatedOfferIdsForApi(tenant, config.clientId);
+        var createdIds = await getCreatedOfferIdsForApi(tenant, config.clientId);
 
         var wsLoopOffers = getOffersWsLoop();
         var all = [];
@@ -456,7 +417,7 @@ router.get('/list', async function (req, res) {
         // /target/offers listing은 페이지/정렬/타입 차이로 누락될 수 있어 병합 보강한다.
         // (Activities의 hydrateCreatedActivitiesNotInList와 동일한 목적)
         if (!allMode) {
-            var entries = listCreatedOffersForApi(tenant, config.clientId);
+            var entries = await listCreatedOffersForApi(tenant, config.clientId);
             var subsetFallbackWs = (wsRes.mode === 'subset' && wsRes.workspaces.length) ? wsRes.workspaces[0].id : '';
             if (wsRes.mode === 'subset') {
                 entries = entries.filter(function (e) {
@@ -498,11 +459,9 @@ router.get('/list', async function (req, res) {
             return res.json({ offers: all });
         }
 
-        if (config.creatorEmail || config.creatorImsUserId) {
-            all = await filterOffersByCreator(all, accessToken, tenant);
-        } else {
-            all = all.filter(function (o) { return createdIds.has(String(o.id || o.offerId)); });
-        }
+        // Adobe Offer API는 createdBy/modifiedBy를 응답에 포함하지 않아 creator-email로는
+        // 매칭할 수 없다. 이 앱이 만든 offer(createdIds)로만 필터한다.
+        all = all.filter(function (o) { return createdIds.has(String(o.id || o.offerId)); });
         res.json({ offers: all });
     } catch (error) {
         console.error('Offers list error:', error);
@@ -614,7 +573,7 @@ router.post('/create', async function (req, res) {
 
         var offerId = data.id || data.offerId;
         console.log('[Offer Create] offerId=%s', offerId);
-        addCreatedOffer(tenant, config.clientId, offerId, workspaceIdStr);
+        await addCreatedOffer(tenant, config.clientId, offerId, workspaceIdStr);
         try {
             await insertCreationEvent({
                 tenant: tenant,
@@ -653,7 +612,7 @@ router.put('/:id', async function (req, res) {
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
 
         // safety: only offers created by this app
-        var meta = getCreatedOfferMetaById(tenant, config.clientId, offerId);
+        var meta = await getCreatedOfferMetaById(tenant, config.clientId, offerId);
         if (!meta) return res.status(403).json({ error: 'Only offers created via this app can be updated.' });
         if (!workspaceId) workspaceId = meta.workspaceId || '';
         if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required for offer update.' });
@@ -738,7 +697,7 @@ router.delete('/:id', async function (req, res) {
         var tenant = config.tenant;
         if (!tenant || !config.clientId) return res.status(400).json({ error: 'ADOBE_TENANT and ADOBE_CLIENT_ID are required in .env.' });
 
-        var meta = getCreatedOfferMetaById(tenant, config.clientId, offerId);
+        var meta = await getCreatedOfferMetaById(tenant, config.clientId, offerId);
         if (!meta) return res.status(403).json({ error: 'Only offers created via this app can be deleted.' });
         if (!workspaceId) workspaceId = meta.workspaceId || '';
         if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required for offer delete.' });
@@ -765,7 +724,7 @@ router.delete('/:id', async function (req, res) {
         if (!r.ok) {
             return res.status(r.status).json({ error: (data && (data.message || data.error || data.errors && data.errors[0] && data.errors[0].message)) || text || 'Failed to delete offer' });
         }
-        removeFromCreatedOffers(tenant, config.clientId, offerId);
+        await removeFromCreatedOffers(tenant, config.clientId, offerId);
         try {
             await insertCreationEvent({
                 tenant: tenant,
