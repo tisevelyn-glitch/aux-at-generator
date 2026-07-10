@@ -272,7 +272,7 @@ async function fetchActivityByIdForList(tenant, accessToken, activityIdStr) {
  * created-activities에만 있고 워크스페이스 목록 합집합에 없는 ID를 단건 조회로 추가.
  * @param {string|Set|null} [workspaceScope] — 문자열이면 해당 WS만, Set이면 id 집합에 속한 WS만, null이면 제한 없음
  */
-async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, workspaceScope) {
+async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, workspaceScope, onNotFound) {
     if (!createdIds || createdIds.size === 0) return all;
     var seen = new Set();
     all.forEach(function (a) {
@@ -284,7 +284,8 @@ async function hydrateCreatedActivitiesNotInList(all, tenant, accessToken, creat
         if (seen.has(idStr)) continue;
         var row = await fetchActivityByIdForList(tenant, accessToken, idStr);
         if (!row) {
-            console.warn('[Activities list] id ' + idStr + ' registered but not in list and single GET failed.');
+            console.warn('[Activities list] id ' + idStr + ' registered but not in list and single GET failed — likely deleted in Target UI.');
+            if (onNotFound) { try { await onNotFound(idStr); } catch (e) {} }
             continue;
         }
         var w = activityWorkspaceFieldsFromRow(row);
@@ -342,7 +343,10 @@ router.get('/list', async function (req, res) {
                     });
                 }
                 var createdIds = await getCreatedIdsForApi(tenant, config.clientId);
-                all = await hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, hydrateScope);
+                all = await hydrateCreatedActivitiesNotInList(all, tenant, accessToken, createdIds, hydrateScope, function (id) {
+                    console.log('[Activities list] soft-deleting activity', id, '(removed in Target UI)');
+                    return removeFromCreated(tenant, config.clientId, id);
+                });
                 if (config.creatorEmail || config.creatorImsUserId) {
                     all = await filterActivitiesByCreator(all, accessToken, tenant, createdIds);
                 } else {
@@ -369,7 +373,10 @@ router.get('/list', async function (req, res) {
                 return Object.assign({}, a, { workspaceId: workspaceId, workspaceName: workspaceName });
             });
             var createdIdsOne = await getCreatedIdsForApi(tenant, config.clientId);
-            activities = await hydrateCreatedActivitiesNotInList(activities, tenant, accessToken, createdIdsOne, workspaceId);
+            activities = await hydrateCreatedActivitiesNotInList(activities, tenant, accessToken, createdIdsOne, workspaceId, function (id) {
+                console.log('[Activities list] soft-deleting activity', id, '(removed in Target UI)');
+                return removeFromCreated(tenant, config.clientId, id);
+            });
             if (config.creatorEmail || config.creatorImsUserId) {
                 activities = await filterActivitiesByCreator(activities, accessToken, tenant, createdIdsOne);
             } else {

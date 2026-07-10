@@ -462,6 +462,19 @@ router.get('/list', async function (req, res) {
         // Adobe Offer API는 createdBy/modifiedBy를 응답에 포함하지 않아 creator-email로는
         // 매칭할 수 없다. 이 앱이 만든 offer(createdIds)로만 필터한다.
         all = all.filter(function (o) { return createdIds.has(String(o.id || o.offerId)); });
+
+        // Target UI에서 삭제된 offer는 Adobe 응답에서 사라지므로 DB도 soft delete
+        if (entries && entries.length) {
+            var foundOfferIds = new Set(all.map(function (o) { return String(o.id || o.offerId); }));
+            var ghostOffers = entries.filter(function (e) { return !foundOfferIds.has(String(e.id)); });
+            if (ghostOffers.length) {
+                console.log('[Offers list] soft-deleting', ghostOffers.length, 'offer(s) removed in Target UI:', ghostOffers.map(function (e) { return e.id; }));
+                await Promise.all(ghostOffers.map(function (e) {
+                    return removeFromCreatedOffers(tenant, config.clientId, e.id);
+                }));
+            }
+        }
+
         res.json({ offers: all });
     } catch (error) {
         console.error('Offers list error:', error);
