@@ -495,13 +495,16 @@ async function createActivitiesOnly() {
     var activityType = normalizeActivityTypeFromSelect();
     var offerType = offerTypeSelect ? offerTypeSelect.value : 'create';
 
-    if (!activityName) { showResult('Please enter an activity name.\n', 'error'); return; }
+    if (!activityName) { showResult('Activity 이름을 입력하세요.\n', 'error'); return; }
 
-    var targetWorkspaceIds = selectedWorkspaceIds;
+    var targetWorkspaceIds;
+    var offerNameBase = '';
+    var offerContent = '';
+
     if (offerType === 'existing') {
-        if (!selectedOfferId) { showResult('기존 Offer를 사용하려면 먼저 Offer 검색/선택을 해주세요.\n', 'error'); return; }
-        if (!selectedOffer || !selectedOffer.foundInWorkspace) { showResult('기존 Offer는 해당 workspace 1개만 사용합니다. Offer 검색을 다시 해주세요.\n', 'error'); return; }
-
+        // 기존 Offer: offer가 속한 WS 1개에만 activity 생성
+        if (!selectedOfferId) { showResult('기존 Offer를 사용하려면 먼저 Offer를 검색/선택해 주세요.\n', 'error'); return; }
+        if (!selectedOffer || !selectedOffer.foundInWorkspace) { showResult('Offer 검색을 다시 해주세요.\n', 'error'); return; }
         var foundWs = selectedOffer.foundInWorkspace;
         if (selectedWorkspaceIds.indexOf(foundWs) === -1) {
             showResult('현재 선택한 워크스페이스에 해당 Offer가 없습니다. Offer가 있는 workspace를 체크하세요.\n', 'error');
@@ -509,25 +512,22 @@ async function createActivitiesOnly() {
         }
         targetWorkspaceIds = [foundWs];
     } else {
-        if (!selectedOfferId || !selectedOffer || !selectedOffer.foundInWorkspace) {
-            showResult('Offer mode=create에서는 먼저 Offer 카드에서 Create Offer로 offer를 생성하세요.\n', 'error');
+        // create 모드: 선택한 모든 WS에 각각 offer + activity 생성 (일괄)
+        var nameEl = document.getElementById('offerName');
+        var contentEl = document.getElementById('offerContent');
+        offerNameBase = nameEl ? nameEl.value.trim() : '';
+        offerContent = contentEl ? contentEl.value.trim() : '';
+        if (!offerNameBase || !offerContent) {
+            showResult('Offer 이름과 HTML content를 입력하세요.\n', 'error');
             return;
         }
-        var foundWs2 = selectedOffer.foundInWorkspace;
-        if (selectedWorkspaceIds.indexOf(foundWs2) === -1) {
-            showResult('현재 선택한 워크스페이스에 생성된 Offer의 workspace가 포함되어야 합니다.\n', 'error');
-            return;
-        }
-        targetWorkspaceIds = [foundWs2];
+        targetWorkspaceIds = selectedWorkspaceIds;
     }
 
     var abResolved = activityType === 'ab' ? resolveAbExperiencesForSubmit() : { ok: true, list: null };
-    if (activityType === 'ab' && !abResolved.ok) {
-        showResult(abResolved.error + '\n', 'error');
-        return;
-    }
+    if (activityType === 'ab' && !abResolved.ok) { showResult(abResolved.error + '\n', 'error'); return; }
     if (activityType === 'ab' && (!abResolved.list || !abResolved.list.length)) {
-        showResult('AB-M Experience 데이터(abExperiences)를 만들 수 없습니다. 페이지를 새로고침 후 다시 시도하세요.\n', 'error');
+        showResult('AB-M Experience 데이터를 만들 수 없습니다. 페이지를 새로고침 후 다시 시도하세요.\n', 'error');
         return;
     }
 
@@ -540,59 +540,86 @@ async function createActivitiesOnly() {
             var wId = targetWorkspaceIds[i];
             var wLabel = getWorkspaceNameById(wId) || wId;
             var typeLabel = activityType === 'xt' ? 'XT' : 'AB-M';
-
             var actBody;
-            if (activityType === 'xt') {
-                var expOfferIdToUse = getDefaultControlOfferIdFromSelection();
-                actBody = {
-                    name: activityName,
-                    workspaceId: wId,
-                    activityType: activityType,
-                    activityStatus: activityStatus,
-                    priority: getActivityPriorityFromDom(),
-                    experienceOfferId: expOfferIdToUse
-                };
+
+            if (offerType === 'existing') {
+                // 기존 Offer 사용
+                var expOfferIdEx = getDefaultControlOfferIdFromSelection();
+                if (activityType === 'xt') {
+                    actBody = { name: activityName, workspaceId: wId, activityType: activityType,
+                        activityStatus: activityStatus, priority: getActivityPriorityFromDom(),
+                        experienceOfferId: expOfferIdEx };
+                } else {
+                    actBody = { name: activityName, workspaceId: wId, activityType: 'ab',
+                        activityStatus: activityStatus, priority: getActivityPriorityFromDom(),
+                        abExperiences: abResolved.list };
+                }
             } else {
-                actBody = {
-                    name: activityName,
-                    workspaceId: wId,
-                    activityType: 'ab',
-                    activityStatus: activityStatus,
-                    priority: getActivityPriorityFromDom(),
-                    abExperiences: abResolved.list
-                };
+                // create 모드: 이 WS에 offer 생성 후 activity 생성
+                var suffix = targetWorkspaceIds.length > 1 ? '_' + wLabel : '';
+                if (activityType === 'xt') {
+                    showResult('Creating offer for [' + wLabel + ']...\n', 'loading');
+                    var offerR = await fetchJson(API_BASE + '/offers/create', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: offerNameBase + suffix, content: offerContent, workspaceId: wId })
+                    });
+                    if (!offerR.ok) throw new Error((offerR.data && offerR.data.error) || '[' + wLabel + '] Offer 생성 실패');
+                    var xtOfferId = String(offerR.data.offerId);
+                    showResult('[' + wLabel + '] Offer created. ID: ' + xtOfferId + '\n', 'success');
+                    actBody = { name: activityName, workspaceId: wId, activityType: activityType,
+                        activityStatus: activityStatus, priority: getActivityPriorityFromDom(),
+                        experienceOfferId: xtOfferId };
+                } else {
+                    // AB-M: 빈 offer 슬롯마다 WS별 offer 생성
+                    var finalAbList = abResolved.list.map(function (row) {
+                        return { name: row.name, visitorPct: row.visitorPct, defaultContent: row.defaultContent, offerId: row.offerId };
+                    });
+                    var rowEls = document.querySelectorAll('#abExperienceRows .ab-exp-row');
+                    for (var ri = 0; ri < rowEls.length; ri++) {
+                        if (!abRowNeedsCreateOffer(rowEls[ri], ri)) continue;
+                        var offerNm = offerNameBase + '_exp' + experienceLetter(ri) + suffix;
+                        showResult('Creating offer for Experience ' + experienceLetter(ri) + ' [' + wLabel + ']...\n', 'loading');
+                        var cr = await fetchJson(API_BASE + '/offers/create', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: offerNm, content: offerContent, workspaceId: wId })
+                        });
+                        if (!cr.ok) throw new Error((cr.data && cr.data.error) || '[' + wLabel + '] Offer 생성 실패');
+                        finalAbList[ri] = { name: finalAbList[ri].name, visitorPct: finalAbList[ri].visitorPct,
+                            defaultContent: false, offerId: String(cr.data.offerId) };
+                        showResult('[' + wLabel + '] Offer created (Exp ' + experienceLetter(ri) + '). ID: ' + cr.data.offerId + '\n', 'success');
+                    }
+                    actBody = { name: activityName, workspaceId: wId, activityType: 'ab',
+                        activityStatus: activityStatus, priority: getActivityPriorityFromDom(),
+                        abExperiences: finalAbList };
+                }
             }
 
             Object.assign(actBody, getActivityPropertyRequestFields());
 
             showResult('Creating ' + typeLabel + ' Activity for [' + wLabel + ']...\n', 'loading');
             var actR = await fetchJson(API_BASE + '/activities/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(actBody)
             });
             var actData = actR.data;
-            if (!actR.ok) throw new Error(formatActivityApiError(actData, '[' + wLabel + '] Failed to create activity'));
+            if (!actR.ok) throw new Error(formatActivityApiError(actData, '[' + wLabel + '] Activity 생성 실패'));
             var activityId = actData.activityId;
             showResult('[' + wLabel + '] Activity created. ID: ' + activityId + '\n', 'success');
 
             if (typeof buildTargetAbActivityUrl === 'function' && typeof showResultLink === 'function') {
-                var url = buildTargetAbActivityUrl(activityId, activityType);
-                if (url) showResultLink('Open in Target UI: ' + url, url, 'success');
+                var builtUrl = buildTargetAbActivityUrl(activityId, activityType);
+                if (builtUrl) showResultLink('Open in Target UI: ' + builtUrl, builtUrl, 'success');
             }
 
-            showResult('Step: setting state to \'' + activityStatus + '\' for [' + wLabel + ']...\n', 'loading');
+            showResult('Setting state to \'' + activityStatus + '\' for [' + wLabel + ']...\n', 'loading');
             var stateR = await fetchJson(API_BASE + '/activities/state', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ activityId: activityId, state: activityStatus })
             });
-            var stateData = stateR.data;
-            if (!stateR.ok) throw new Error(stateData.error || '[' + wLabel + '] Failed to update activity state');
+            if (!stateR.ok) throw new Error((stateR.data && stateR.data.error) || '[' + wLabel + '] State 변경 실패');
             showResult('[' + wLabel + '] State updated.\n', 'success');
 
             await appendQaLinesAfterState(activityId, activityType, wId);
-
             results.push({ workspace: wLabel, activityId: activityId });
         }
 

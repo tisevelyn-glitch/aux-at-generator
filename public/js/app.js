@@ -82,7 +82,7 @@
             }
             accessToken = tokData.accessToken;
             if (createOffersBtn) createOffersBtn.disabled = false;
-            if (createActivitiesBtn) createActivitiesBtn.disabled = true;
+            if (createActivitiesBtn) createActivitiesBtn.disabled = false;
             if (offerCreateBtn) offerCreateBtn.disabled = false;
         } catch (e) {
             console.error('Init error:', e);
